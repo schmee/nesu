@@ -88,7 +88,7 @@ pub fn main() !void {
 
     var loaded_rom: ?[]const u8 = null;
     var cpu_ram = std.mem.zeroes([_cpu.ram_size]u8);
-    var cpu = Cpu{ .ram = &cpu_ram, .log_instructions = config.cpu_log, .ppu = undefined, .apu = undefined };
+    var cpu = Cpu{ .ram = &cpu_ram, .log_instructions = false, .ppu = undefined, .apu = undefined, .mapper = undefined };
     var ppu = Ppu{ .cpu = undefined };
     var apu = Apu{ .resampler = &resampler };
 
@@ -136,10 +136,10 @@ pub fn main() !void {
                 paused = !paused;
             }
 
-            // if (rl.IsKeyPressed(rl.KeyboardKey.KEY_L)) {
-            //     // std.log.info("PRESSED 'L'", .{});
-            //     cpu.log_instructions = !cpu.log_instructions;
-            // }
+            if (rl.IsKeyPressed(rl.KeyboardKey.KEY_EIGHT)) {
+                // std.log.info("PRESSED 'L'", .{});
+                cpu.log_instructions = !cpu.log_instructions;
+            }
 
             if (rl.IsKeyPressed(rl.KeyboardKey.KEY_G)) {
                 ppu.logging = !ppu.logging;
@@ -218,8 +218,8 @@ pub fn main() !void {
         }
 
         var read = false;
+        // const emu_start = try std.time.Instant.now();
         if (loaded_rom != null and ui_state != .unsupported_mapper and (step or !paused)) {
-            // const emu_start = try std.time.Instant.now();
             while (true) {
                 old_scanline = ppu.scanline;
 
@@ -370,24 +370,26 @@ const Input = packed struct {
 
 fn loadRom(allocator: Allocator, ui_state: *UiState, filename: []const u8, cpu: *Cpu, cpu_ram: *[_cpu.ram_size]u8, ppu: *Ppu, apu: *Apu) !void {
     const rom_data = try std.fs.cwd().readFileAlloc(allocator, filename, 500_000);
-    const rom = try mapper.load(rom_data);
-    if (rom.mapperNumber() != 0) {
-        ui_state.* = . { .unsupported_mapper = rom.mapperNumber() };
-        return;
-    }
+    var the_mapper = try allocator.create(mapper.Mapper);
+    the_mapper.* = mapper.load(rom_data) catch |err| switch (err) {
+        error.UnsupportedMapper => {
+            const header = mapper.parseHeader(rom_data);
+            ui_state.* = . { .unsupported_mapper = mapper.mapperNumber(header) };
+            return;
+        },
+        else => |e| return e,
+    };
     ui_state.* = .play;
 
     resampler = try Resampler.init(allocator, sample_rate);
-    cpu.* = Cpu{ .ram = cpu_ram, .log_instructions = false, .ppu = undefined, .apu = undefined };
+    cpu.* = Cpu{ .ram = cpu_ram, .log_instructions = false, .ppu = undefined, .apu = undefined, .mapper = the_mapper };
     ppu.* = Ppu{ .cpu = undefined };
     apu.* = Apu{ .resampler = &resampler };
-
     cpu.apu = apu;
     cpu.ppu = ppu;
     ppu.cpu = cpu;
 
-    ppu.mapRom(&rom);
-    cpu.mapRom(&rom);
+    ppu.mapRom(the_mapper);
 
     // Set the RAM to the same pattern as fceux
     for (cpu.ram[0x0000 .. 0x1FFF]) |*byte, i| {

@@ -1,11 +1,10 @@
 const std = @import("std");
 
 const Config = @import("config.zig");
-const mapper = @import("mapper.zig");
 const Ppu = @import("ppu.zig").Ppu;
 const Apu = @import("apu.zig").Apu;
-
-const INES = mapper.INES;
+const mapper = @import("mapper.zig");
+const Mapper = mapper.Mapper;
 
 pub const ram_size = 1 << 16;
 
@@ -48,6 +47,7 @@ pub const Cpu = struct {
 
     ppu: *Ppu,
     apu: *Apu,
+    mapper: *Mapper,
 
     // Registers
     // Default values https://www.nesdev.org/wiki/CPU_power_up_state
@@ -92,6 +92,8 @@ pub const Cpu = struct {
                 self.input_register >>= 1;
                 break :blk bit;
             },
+            0x8000...0xBFFF => self.mapper.prgRom0()[addr - 0x8000],
+            0xC000...0xFFFF => self.mapper.prgRom1()[addr - 0xC000],
             else => self.ram[addr]
         };
     }
@@ -137,18 +139,8 @@ pub const Cpu = struct {
                 else => unreachable,
             },
             0x4017 => self.apu.writeFrameCounter(byte),
+            0x8000...0xFFFF => self.mapper.write(addr, byte),
             else => self.ram[addr] = byte,
-        }
-    }
-
-    pub fn mapRom(self: *Self, ines: *const INES) void {
-        switch (ines.header().prg_rom_size) {
-            1 => {
-                std.mem.copy(u8, self.ram[0x8000..], ines.prgRom());
-                std.mem.copy(u8, self.ram[0xc000..], ines.prgRom());
-            },
-            2 => std.mem.copy(u8, self.ram[0x8000..], ines.prgRom()),
-            else => unreachable,
         }
     }
 
@@ -187,7 +179,7 @@ pub const Cpu = struct {
             self.handleNmi();
             return 7;
         }
-        const opcode = self.ram[self.pc];
+        const opcode = self.readMem(self.pc);
         const op = ops[opcode];
         if (op != null) {
             doOp(self, op.?);
@@ -204,18 +196,18 @@ pub const Cpu = struct {
     fn opMem(self: *Self, op: Op) u16 {
         return switch(op.mode.?) {
             .indirect_x => blk: {
-                const inst = self.ram[self.pc + 1];
-                const a = self.ram[inst +% self.ix];
-                const b = self.ram[inst +% self.ix +% 1];
+                const inst = self.readMem(self.pc + 1);
+                const a = self.readMem(inst +% self.ix);
+                const b = self.readMem(inst +% self.ix +% 1);
                 break :blk @as(u16, b) << 8 ^ a;
             },
             .indirect_y => blk: {
-                const inst = self.ram[self.pc + 1];
-                const a = self.ram[inst];
+                const inst = self.readMem(self.pc + 1);
+                const a = self.readMem(inst);
 
                 var next_inst: u8 = undefined;
                 const overflow = @addWithOverflow(u8, inst, 1, &next_inst);
-                const b = self.ram[next_inst];
+                const b = self.readMem(next_inst);
 
                 const base = (@as(u16, b) << 8 ^ a);
                 var address: u16 = undefined;
@@ -227,9 +219,8 @@ pub const Cpu = struct {
             },
             .absolute => self.absolute(),
             .absolute_x => blk: {
-                const bytes = self.ram[self.pc + 1..][0..2];
-                const lsb = bytes[0];
-                var msb = bytes[1];
+                const lsb = self.readMem(self.pc + 1);
+                var msb = self.readMem(self.pc + 2);
 
                 var part1: u8 = undefined;
                 const overflow = @addWithOverflow(u8, lsb, self.ix, &part1);
@@ -241,9 +232,8 @@ pub const Cpu = struct {
                 break :blk address;
             },
             .absolute_y => blk: {
-                const bytes = self.ram[self.pc + 1..][0..2];
-                const lsb = bytes[0];
-                var msb = bytes[1];
+                const lsb = self.readMem(self.pc + 1);
+                var msb = self.readMem(self.pc + 2);
 
                 var part1: u8 = undefined;
                 const overflow = @addWithOverflow(u8, lsb, self.iy, &part1);
@@ -255,9 +245,9 @@ pub const Cpu = struct {
                 break :blk address;
             },
             .immediate => self.pc + 1,
-            .zero_page => self.ram[self.pc + 1],
-            .zero_page_x => self.ram[self.pc + 1] +% self.ix,
-            .zero_page_y => self.ram[self.pc + 1] +% self.iy,
+            .zero_page => self.readMem(self.pc + 1),
+            .zero_page_x => self.readMem(self.pc + 1) +% self.ix,
+            .zero_page_y => self.readMem(self.pc + 1) +% self.iy,
             .accumulator => unreachable
         };
     }
@@ -279,11 +269,13 @@ pub const Cpu = struct {
     }
 
     pub inline fn absoluteIndexed(self: *Cpu, start: u16) u16 {
-        return @bitCast(u16, self.ram[start..][0..2].*);
+        const msb = @as(u16, self.readMem(start + 1)) << 8;
+        const lsb = self.readMem(start);
+        return msb | lsb;
     }
 
     fn relative(self: *Cpu) u16 {
-        const offset = self.ram[self.pc + 1];
+        const offset = self.readMem(self.pc + 1);
         // offset is a signed integer, convert to unsigned if negative
         return if (offset >> 7 & 1 == 1)
             self.pc - (~offset + 1)
@@ -462,19 +454,21 @@ fn printOp(cpu: *Cpu, op: Op, w: anytype) void {
     }
     switch (op.mode.?) {
         .indirect_x => {
-            const inst = cpu.ram[cpu.pc + 1];
+            const inst = cpu.readMem(cpu.pc + 1);
             w.print("{s} (${X:0>2}, X)", .{op.name, inst}) catch unreachable;
         },
         .absolute  => {
-            const address = @bitCast(u16, cpu.ram[cpu.pc + 1..][0..2].*);
+            const msb = (@as(u16, cpu.readMem(cpu.pc + 2)) << 8);
+            const lsb = cpu.readMem(cpu.pc + 1);
+            const address = msb | lsb;
             w.print("{s} ${X:0>4}", .{op.name, address}) catch unreachable;
         },
         .immediate => {
-            const byte = cpu.ram[cpu.pc + 1];
+            const byte = cpu.readMem(cpu.pc + 1);
             w.print("{s} #${X:0>2}", .{op.name, byte}) catch unreachable;
         },
         .zero_page => {
-            const address = cpu.ram[cpu.pc + 1];
+            const address = cpu.readMem(cpu.pc + 1);
             const val = cpu.ram[address];
             w.print("{s} ${X:0>2} = {X:0>2}", .{op.name, address, val}) catch unreachable;
         },
@@ -515,11 +509,11 @@ fn doOp(cpu: *Cpu, op: Op) void {
             // Special handling for page boundary due to hardware bug in the original NES CPU
             if (abs & 0xFF == 0xFF) {
                 const msb_address = (abs >> 8) << 8;
-                const address = (@as(u16, cpu.ram[msb_address]) << 8) ^ cpu.ram[abs];
+                const address = (@as(u16, cpu.readMem(msb_address)) << 8) ^ cpu.readMem(abs);
                 cpu.pc = address;
                 inc_pc = false;
             } else {
-                const address = (@as(u16, cpu.ram[abs + 1]) << 8) ^ cpu.ram[abs];
+                const address = (@as(u16, cpu.readMem(abs + 1)) << 8) ^ cpu.readMem(abs);
                 cpu.pc = address;
                 inc_pc = false;
             }
@@ -556,7 +550,12 @@ fn doOp(cpu: *Cpu, op: Op) void {
             cpu.writeMem(cpu.opMem(op), cpu.iy);
         },
         0x20 => {
-            const bytes = cpu.ram[cpu.pc..][0..3];
+            // const bytes = cpu.ram[cpu.pc..][0..3];
+            const bytes: [3]u8 = .{
+                cpu.readMem(cpu.pc),
+                cpu.readMem(cpu.pc + 1),
+                cpu.readMem(cpu.pc + 2),
+            };
             const pc = @bitCast([2]u8, cpu.pc + 2);
             cpu.pushStack(pc[1]);
             cpu.pushStack(pc[0]);
@@ -857,10 +856,15 @@ fn doOp(cpu: *Cpu, op: Op) void {
 
     if (cpu.log_instructions) {
         var cbuf = std.mem.zeroes([20]u8);
+        var args = std.mem.zeroes([20]u8);
+        var i: u16 = 0;
+        while (i < op.bytes) : (i += 1) {
+            args[i] = cpu.readMem(old_pc + i);
+        }
         std.log.info("{d: <4} {X}  {s}  {s: <15} A: {X:0>2} X: {X:0>2} Y: {X:0>2} P: {X:0>2} SP: {X:0>2} PPU:  ({d},{d}) CYC: {d}", .{
             cpu.n_steps + 1,
             old_pc,
-            printBytes(&cbuf, cpu.ram[old_pc..][0..op.bytes]) catch unreachable,
+            printBytes(&cbuf, args[0..op.bytes]) catch unreachable,
             fba.getWritten(),
             old_acc,
             old_ix,

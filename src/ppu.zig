@@ -2,7 +2,7 @@ const std = @import("std");
 const mapper = @import("mapper.zig");
 const Cpu = @import("cpu.zig").Cpu;
 
-const INES = mapper.INES;
+const Mapper = mapper.Mapper;
 
 const vram_size = 1 << 14;
 
@@ -398,9 +398,11 @@ pub const Ppu = struct {
         self.vram_register.reg = @bitCast(AddressRegister, @bitCast(u15, self.vram_register.reg) + increment);
     }
 
-    pub fn mapRom(self: *Self, ines: *const INES) void {
-        std.mem.copy(u8, self.vram[0..], ines.chrRom());
-        self.mirroring = ines.header().flags6.mirroring;
+    pub fn mapRom(self: *Self, the_mapper: *const Mapper) void {
+        if (the_mapper.id == .nrom) {
+            std.mem.copy(u8, self.vram[0..], the_mapper.chrRom0());
+            self.mirroring = the_mapper.header().flags6.mirroring;
+        }
     }
 
     pub fn getNametable(self: *Self, index: u16) []const u8 {
