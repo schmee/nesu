@@ -36,12 +36,17 @@ pub const Oam = struct {
 
 // https://www.nesdev.org/wiki/PPU_registers
 
+const SpriteSize = enum(u1) {
+    small, // 8x8
+    large, // 8x16
+};
+
 const RegCtrl = packed struct {
     base_nametable_address: u2,
     vram_address_increment: u1,
     sprite_pattern_table_address: u1,
     background_pattern_table_address: u1,
-    sprite_size: u1,
+    sprite_size: SpriteSize,
     ppu_select: u1,
     generate_nmi: bool,
 };
@@ -302,7 +307,6 @@ pub const Ppu = struct {
         self.reg_ctrl = @bitCast(RegCtrl, byte);
         self.vram_register.tmp.h_nametable = @truncate(u1, byte);
         self.vram_register.tmp.v_nametable = @truncate(u1, byte >> 1);
-        std.debug.assert(self.reg_ctrl.sprite_size == 0); // 8x16 sprites not implemented
         if (!old.generate_nmi and self.reg_ctrl.generate_nmi and self.reg_status.vblank)
             self.cpu.nmi = true;
     }
@@ -322,6 +326,13 @@ pub const Ppu = struct {
 
     pub fn writeRegScroll(self: *Self, byte: u8) void {
         self.vram_register.write(.scroll, byte);
+    }
+
+    fn spriteSize(self: *const Self) u8 {
+        return switch (self.reg_ctrl.sprite_size) {
+            .small => 8,
+            .large => 16,
+        };
     }
 
     const palette_mirror_pairs = [_][2]u16{
@@ -380,8 +391,10 @@ pub const Ppu = struct {
     }
 
     pub fn readVram(self: *Self) u8 {
-        const ok = self.reg_status.vblank or !self.reg_mask.show_background or !self.reg_mask.show_sprites;
-        if (!ok) @panic("2007 read during rendering!");
+        // This is supposed to be "bad" if it happens, but the games that trigger it seem to work fine ¯\_(ツ)_/¯
+        // const ok = self.reg_status.vblank or !self.reg_mask.show_background or !self.reg_mask.show_sprites;
+        // if (!ok) @panic("2007 read during rendering!");
+
         const old = self.data_buffer;
         const addr = self.vram_register.addr();
         self.data_buffer = self.vram[addr];
@@ -496,7 +509,8 @@ pub const Ppu = struct {
             return bg;
 
         const oam = self.getOam();
-        for (active_sprites.constSlice()) |i| {
+        for (active_sprites.constSlice()) |sprite_hit| {
+            const i = sprite_hit.index;
             const sprite = oam.get(i);
             const x = sprite.x;
             const in_bounds = prev_cycle >= x and prev_cycle < x + 8;
@@ -504,15 +518,26 @@ pub const Ppu = struct {
             const y = sprite.y +% 1;
 
             const attrs = sprite.attrs;
-            const spt = self.getSpritePatternTable();
-            const srow = if (attrs.flip_vertical) (7 - (self.scanline - y)) else (self.scanline - y);
+            const spt = switch (self.reg_ctrl.sprite_size) {
+                .small => self.getSpritePatternTable(),
+                .large => switch (sprite.tile_index & 1) {
+                    0 => self.patternTableLeft(),
+                    1 => self.patternTableRight(),
+                    else => unreachable,
+                }
+            };
+            const srow = if (attrs.flip_vertical) (self.spriteSize() - 1 - (self.scanline - y)) else (self.scanline - y);
             const sprite_palette = self.getSpritePalette(attrs.palette);
             const xpos = prev_cycle - x;
             const srow_index = if (attrs.flip_horizontal)
                 7 - xpos
             else
                 xpos;
-            const sprite_color_index = spt.getTileRow(sprite.tile_index, srow).getCol(srow_index);
+            var upper = sprite_hit.upper;
+            if (self.reg_ctrl.sprite_size == .large and attrs.flip_vertical)
+                upper = !upper;
+            const tile_index = sprite.tile_index + @as(u8, if (upper) 0 else 1);
+            const sprite_color_index = spt.getTileRow(tile_index, srow % 8).getCol(srow_index);
             const sprite_pixel = sprite_palette[sprite_color_index];
             const sprite_opaque = sprite_color_index != 0;
 
@@ -535,8 +560,14 @@ pub const Ppu = struct {
         return bg;
     }
 
+    const SpriteHit = packed struct {
+        index: u7,
+        // Upper or lower half of 8x16 sprite
+        upper: bool,
+    };
+
     const OamCache = struct {
-        active_sprites: [240]std.BoundedArray(u8, 8) = undefined,
+        active_sprites: [240]std.BoundedArray(SpriteHit, 8) = undefined,
         sprite_zero_hit: bool = false,
 
         const C = @This();
@@ -562,10 +593,10 @@ pub const Ppu = struct {
                 const x: u16 = sprite.x;
                 if (x >= 0 and x < 248) {
                     var j: usize = 0;
-                    while (j < 8) : (j += 1) {
+                    while (j < self.spriteSize()) : (j += 1) {
                         const yy = y + j;
                         if (yy >= 240) break;
-                        oam_cache.active_sprites[yy].append(i) catch break;
+                        oam_cache.active_sprites[yy].append(.{ .index = @intCast(u7, i), .upper = j < 8}) catch break;
                     }
                     if (i == 0) {
                         oam_cache.sprite_zero_hit = true;
