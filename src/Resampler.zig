@@ -11,7 +11,7 @@ const Cursor = struct {
         std.debug.assert(self.len == other.len);
         const a = self.i + self.gen * self.len;
         const b = other.i + other.gen * other.len;
-        return @intCast(isize, b) - @intCast(isize, a);
+        return @as(isize, @intCast(b)) - @as(isize, @intCast(a));
     }
 
     pub fn inc(self: *Self, n: usize) void {
@@ -37,8 +37,8 @@ const Cursor = struct {
             .gt, .lt => |o| o,
             .eq => switch (std.math.order(self.i, other.i)) {
                 .gt, .lt => |o| o,
-                .eq => .eq
-            }
+                .eq => .eq,
+            },
         };
     }
 };
@@ -75,7 +75,7 @@ resampled_cache_cursor: usize = 0,
 const Resampler = @This();
 
 pub fn init(allocator: std.mem.Allocator, sample_rate: f32) !Resampler {
-    const frame_size = @floatToInt(usize, sample_rate / 100);
+    const frame_size = @as(usize, @intFromFloat(sample_rate / 100));
     std.debug.assert(frame_size == 480);
     const buf_len = 25 * frame_size;
     return .{
@@ -118,7 +118,7 @@ pub fn push(self: *Resampler, s: f32) void {
             }
             break :blk y;
         };
-        self.resampled_cache[self.resampled_cache_cursor] = @floatToInt(i16, blockDc(60000 * y - 30000) + 0.5);
+        self.resampled_cache[self.resampled_cache_cursor] = @as(i16, @intFromFloat(blockDc(60000 * y - 30000) + 0.5));
 
         self.resampler_count = 0;
         self.resampled_cache_cursor += 1;
@@ -160,7 +160,7 @@ pub fn drain(self: *Resampler, out: []i16) void {
     defer self.mutex.unlock();
 
     if (!self.active) {
-        std.mem.set(i16, out, 0);
+        @memset(out, 0);
         return;
     }
 
@@ -206,11 +206,11 @@ pub fn drain(self: *Resampler, out: []i16) void {
             if (cursor.i == 0 and cursor.gen == 0) break;
             cursor.dec();
         }
-        break :blk @divFloor(s, @intCast(isize, i));
+        break :blk @divFloor(s, @as(isize, @intCast(i)));
     };
-    const deviation = avg_lag - 4 * @intCast(isize, self.frame_size);
+    const deviation = avg_lag - 4 * @as(isize, @intCast(self.frame_size));
     if (deviation > 0) {
-        const nudge = @min(3, @intCast(usize, @divFloor(deviation, 10)));
+        const nudge = @min(3, @as(usize, @intCast(@divFloor(deviation, 10))));
         self.read_cursor.inc(nudge);
         // std.log.info("deviation {d} nudge {d} lag {d} avg lag {d}", .{deviation, nudge, lag, avg_lag});
     }

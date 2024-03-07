@@ -16,7 +16,7 @@ const PS = packed struct {
     b_flag: bool,
     b_flag2: bool,
     overflow: bool,
-    negative: bool
+    negative: bool,
 };
 
 const AddressingMode = enum {
@@ -63,7 +63,7 @@ pub const Cpu = struct {
     // Index Y (X)
     iy: u8 = 0,
     // Processor Status (P)
-    ps: PS = @bitCast(PS, @as(u8, 0x24)),
+    ps: PS = @as(PS, @bitCast(@as(u8, 0x24))),
 
     nmi: bool = false,
 
@@ -94,7 +94,7 @@ pub const Cpu = struct {
             },
             0x8000...0xBFFF => self.mapper.prgRom0()[addr - 0x8000],
             0xC000...0xFFFF => self.mapper.prgRom1()[addr - 0xC000],
-            else => self.ram[addr]
+            else => self.ram[addr],
         };
     }
 
@@ -145,7 +145,7 @@ pub const Cpu = struct {
     }
 
     pub fn getStack(self: *Self) []u8 {
-        return self.ram[0x0100..0x01ff + 1];
+        return self.ram[0x0100 .. 0x01ff + 1];
     }
 
     fn pushStack(self: *Self, byte: u8) void {
@@ -156,17 +156,16 @@ pub const Cpu = struct {
 
     fn popStack(self: *Self) u8 {
         self.sp += 1;
-        var byte = self.getStack()[self.sp];
-        return byte;
+        return self.getStack()[self.sp];
     }
 
     fn handleNmi(self: *Self) void {
         std.debug.assert(self.nmi);
         const addr = self.absoluteIndexed(0xFFFA);
-        const bytes = @bitCast([2]u8, self.pc);
-        self.pushStack(@bitCast(u8, bytes[1]));
-        self.pushStack(@bitCast(u8, bytes[0]));
-        self.pushStack(@bitCast(u8, self.ps));
+        const bytes = @as([2]u8, @bitCast(self.pc));
+        self.pushStack(@as(u8, @bitCast(bytes[1])));
+        self.pushStack(@as(u8, @bitCast(bytes[0])));
+        self.pushStack(@as(u8, @bitCast(self.ps)));
         self.pc = addr;
         self.ps.b_flag = true;
         self.nmi = false;
@@ -190,11 +189,11 @@ pub const Cpu = struct {
         self.n_steps += 1;
         self.page_crossed = false;
 
-        return @intCast(u16, self.cycle - start_cycle);
+        return @as(u16, @intCast(self.cycle - start_cycle));
     }
 
     fn opMem(self: *Self, op: Op) u16 {
-        return switch(op.mode.?) {
+        return switch (op.mode.?) {
             .indirect_x => blk: {
                 const inst = self.readMem(self.pc + 1);
                 const a = self.readMem(inst +% self.ix);
@@ -205,15 +204,13 @@ pub const Cpu = struct {
                 const inst = self.readMem(self.pc + 1);
                 const a = self.readMem(inst);
 
-                var next_inst: u8 = undefined;
-                const overflow = @addWithOverflow(u8, inst, 1, &next_inst);
+                const next_inst, const overflow = @addWithOverflow(inst, 1);
                 const b = self.readMem(next_inst);
 
                 const base = (@as(u16, b) << 8 ^ a);
-                var address: u16 = undefined;
-                const overflow2 = @addWithOverflow(u16, base, self.iy, &address);
+                const address, const overflow2 = @addWithOverflow(base, self.iy);
 
-                if (overflow or overflow2)
+                if (overflow == 1 or overflow2 == 1)
                     self.cycle += 1;
                 break :blk address;
             },
@@ -222,9 +219,8 @@ pub const Cpu = struct {
                 const lsb = self.readMem(self.pc + 1);
                 var msb = self.readMem(self.pc + 2);
 
-                var part1: u8 = undefined;
-                const overflow = @addWithOverflow(u8, lsb, self.ix, &part1);
-                if (overflow) {
+                const part1, const overflow = @addWithOverflow(lsb, self.ix);
+                if (overflow == 1) {
                     msb +%= 1;
                     self.page_crossed = true;
                 }
@@ -235,9 +231,8 @@ pub const Cpu = struct {
                 const lsb = self.readMem(self.pc + 1);
                 var msb = self.readMem(self.pc + 2);
 
-                var part1: u8 = undefined;
-                const overflow = @addWithOverflow(u8, lsb, self.iy, &part1);
-                if (overflow) {
+                const part1, const overflow = @addWithOverflow(lsb, self.iy);
+                if (overflow == 1) {
                     msb +%= 1;
                     self.page_crossed = true;
                 }
@@ -248,19 +243,19 @@ pub const Cpu = struct {
             .zero_page => self.readMem(self.pc + 1),
             .zero_page_x => self.readMem(self.pc + 1) +% self.ix,
             .zero_page_y => self.readMem(self.pc + 1) +% self.iy,
-            .accumulator => unreachable
+            .accumulator => unreachable,
         };
     }
 
     fn updateFlags(self: *Self, val: u8, comptime flags: anytype) void {
         inline for (flags) |flag| {
-            comptime switch (flag) {
+            switch (flag) {
                 .z => self.ps.zero = val == 0,
                 .c => self.ps.zero = val == 0,
                 .o => self.ps.zero = val == 0,
                 .n => self.ps.negative = val >> 7 & 1 == 1,
-                else => unreachable
-            };
+                else => unreachable,
+            }
         }
     }
 
@@ -286,10 +281,10 @@ pub const Cpu = struct {
 
 const ops = blk: {
     var all_ops: [0xff]?Op = undefined;
-    std.mem.set(?Op, &all_ops, null);
-    var tmp = [_]Op {
+    @memset(&all_ops, null);
+    const tmp = [_]Op{
         .{ .name = "ADC".*, .code = 0x61, .bytes = 2, .cycles = 6, .mode = .indirect_x },
-        .{ .name = "ADC".*, .code = 0x65, .bytes = 2, .cycles = 3, .mode = .zero_page},
+        .{ .name = "ADC".*, .code = 0x65, .bytes = 2, .cycles = 3, .mode = .zero_page },
         .{ .name = "ADC".*, .code = 0x69, .bytes = 2, .cycles = 2, .mode = .immediate },
         .{ .name = "ADC".*, .code = 0x6d, .bytes = 3, .cycles = 4, .mode = .absolute },
         .{ .name = "ADC".*, .code = 0x71, .bytes = 2, .cycles = 5, .mode = .indirect_y },
@@ -298,7 +293,7 @@ const ops = blk: {
         .{ .name = "ADC".*, .code = 0x7d, .bytes = 3, .cycles = 4, .mode = .absolute_x },
         .{ .name = "AND".*, .code = 0x21, .bytes = 2, .cycles = 6, .mode = .indirect_x },
         .{ .name = "AND".*, .code = 0x21, .bytes = 2, .cycles = 6, .mode = .indirect_x },
-        .{ .name = "AND".*, .code = 0x25, .bytes = 2, .cycles = 3, .mode = .zero_page},
+        .{ .name = "AND".*, .code = 0x25, .bytes = 2, .cycles = 3, .mode = .zero_page },
         .{ .name = "AND".*, .code = 0x29, .bytes = 2, .cycles = 2, .mode = .immediate },
         .{ .name = "AND".*, .code = 0x29, .bytes = 2, .cycles = 2, .mode = .immediate },
         .{ .name = "AND".*, .code = 0x2d, .bytes = 3, .cycles = 4, .mode = .absolute },
@@ -316,17 +311,17 @@ const ops = blk: {
         .{ .name = "BEQ".*, .code = 0xf0, .bytes = 2, .cycles = 2, .mode = null },
         .{ .name = "BIT".*, .code = 0x24, .bytes = 2, .cycles = 3, .mode = .zero_page },
         .{ .name = "BIT".*, .code = 0x2c, .bytes = 3, .cycles = 4, .mode = .absolute },
-        .{ .name = "BMI".*, .code = 0x30, .bytes = 2, .cycles = 2, .mode = .immediate},
+        .{ .name = "BMI".*, .code = 0x30, .bytes = 2, .cycles = 2, .mode = .immediate },
         .{ .name = "BNE".*, .code = 0xd0, .bytes = 2, .cycles = 2, .mode = null },
         .{ .name = "BPL".*, .code = 0x10, .bytes = 2, .cycles = 2, .mode = .immediate },
         .{ .name = "BRK".*, .code = 0x00, .bytes = 1, .cycles = 7, .mode = null },
         .{ .name = "BVC".*, .code = 0x50, .bytes = 2, .cycles = 2, .mode = .immediate },
         .{ .name = "BVS".*, .code = 0x70, .bytes = 2, .cycles = 2, .mode = .immediate },
-        .{ .name = "CLC".*, .code = 0x18, .bytes = 1, .cycles = 2, .mode = null},
-        .{ .name = "CLD".*, .code = 0xd8, .bytes = 1, .cycles = 2, .mode = null},
-        .{ .name = "CLV".*, .code = 0xb8, .bytes = 1, .cycles = 2, .mode = null},
+        .{ .name = "CLC".*, .code = 0x18, .bytes = 1, .cycles = 2, .mode = null },
+        .{ .name = "CLD".*, .code = 0xd8, .bytes = 1, .cycles = 2, .mode = null },
+        .{ .name = "CLV".*, .code = 0xb8, .bytes = 1, .cycles = 2, .mode = null },
         .{ .name = "CMP".*, .code = 0xc1, .bytes = 2, .cycles = 6, .mode = .indirect_x },
-        .{ .name = "CMP".*, .code = 0xc5, .bytes = 2, .cycles = 3, .mode = .zero_page},
+        .{ .name = "CMP".*, .code = 0xc5, .bytes = 2, .cycles = 3, .mode = .zero_page },
         .{ .name = "CMP".*, .code = 0xc9, .bytes = 2, .cycles = 2, .mode = .immediate },
         .{ .name = "CMP".*, .code = 0xcd, .bytes = 3, .cycles = 4, .mode = .absolute },
         .{ .name = "CMP".*, .code = 0xd1, .bytes = 2, .cycles = 5, .mode = .indirect_y },
@@ -336,7 +331,7 @@ const ops = blk: {
         .{ .name = "CPX".*, .code = 0xe0, .bytes = 2, .cycles = 2, .mode = .immediate },
         .{ .name = "CPX".*, .code = 0xe4, .bytes = 2, .cycles = 3, .mode = .zero_page },
         .{ .name = "CPX".*, .code = 0xec, .bytes = 3, .cycles = 4, .mode = .absolute },
-        .{ .name = "CPY".*, .code = 0xc0, .bytes = 2, .cycles = 2, .mode = .immediate},
+        .{ .name = "CPY".*, .code = 0xc0, .bytes = 2, .cycles = 2, .mode = .immediate },
         .{ .name = "CPY".*, .code = 0xc4, .bytes = 2, .cycles = 3, .mode = .zero_page },
         .{ .name = "CPY".*, .code = 0xcc, .bytes = 3, .cycles = 4, .mode = .absolute },
         .{ .name = "DEC".*, .code = 0xc6, .bytes = 2, .cycles = 5, .mode = .zero_page },
@@ -346,7 +341,7 @@ const ops = blk: {
         .{ .name = "DEX".*, .code = 0xca, .bytes = 1, .cycles = 2, .mode = null },
         .{ .name = "DEY".*, .code = 0x88, .bytes = 1, .cycles = 2, .mode = null },
         .{ .name = "EOR".*, .code = 0x41, .bytes = 2, .cycles = 6, .mode = .indirect_x },
-        .{ .name = "EOR".*, .code = 0x45, .bytes = 2, .cycles = 3, .mode = .zero_page},
+        .{ .name = "EOR".*, .code = 0x45, .bytes = 2, .cycles = 3, .mode = .zero_page },
         .{ .name = "EOR".*, .code = 0x49, .bytes = 2, .cycles = 2, .mode = .immediate },
         .{ .name = "EOR".*, .code = 0x4d, .bytes = 3, .cycles = 4, .mode = .absolute },
         .{ .name = "EOR".*, .code = 0x51, .bytes = 2, .cycles = 5, .mode = .indirect_y },
@@ -363,7 +358,7 @@ const ops = blk: {
         .{ .name = "JMP".*, .code = 0x6c, .bytes = 3, .cycles = 5, .mode = null },
         .{ .name = "JSR".*, .code = 0x20, .bytes = 3, .cycles = 6, .mode = .absolute },
         .{ .name = "LDA".*, .code = 0xa1, .bytes = 2, .cycles = 6, .mode = .indirect_x },
-        .{ .name = "LDA".*, .code = 0xa5, .bytes = 2, .cycles = 3, .mode = .zero_page},
+        .{ .name = "LDA".*, .code = 0xa5, .bytes = 2, .cycles = 3, .mode = .zero_page },
         .{ .name = "LDA".*, .code = 0xa9, .bytes = 2, .cycles = 2, .mode = .immediate },
         .{ .name = "LDA".*, .code = 0xad, .bytes = 3, .cycles = 4, .mode = .absolute },
         .{ .name = "LDA".*, .code = 0xb1, .bytes = 2, .cycles = 5, .mode = .indirect_y },
@@ -385,19 +380,19 @@ const ops = blk: {
         .{ .name = "LSR".*, .code = 0x4e, .bytes = 3, .cycles = 6, .mode = .absolute },
         .{ .name = "LSR".*, .code = 0x56, .bytes = 2, .cycles = 6, .mode = .zero_page_x },
         .{ .name = "LSR".*, .code = 0x5e, .bytes = 3, .cycles = 7, .mode = .absolute_x },
-        .{ .name = "NOP".*, .code = 0xea, .bytes = 1, .cycles = 2, .mode = null},
+        .{ .name = "NOP".*, .code = 0xea, .bytes = 1, .cycles = 2, .mode = null },
         .{ .name = "ORA".*, .code = 0x01, .bytes = 2, .cycles = 6, .mode = .indirect_x },
-        .{ .name = "ORA".*, .code = 0x05, .bytes = 2, .cycles = 3, .mode = .zero_page},
+        .{ .name = "ORA".*, .code = 0x05, .bytes = 2, .cycles = 3, .mode = .zero_page },
         .{ .name = "ORA".*, .code = 0x09, .bytes = 2, .cycles = 2, .mode = .immediate },
         .{ .name = "ORA".*, .code = 0x0d, .bytes = 3, .cycles = 4, .mode = .absolute },
         .{ .name = "ORA".*, .code = 0x11, .bytes = 2, .cycles = 5, .mode = .indirect_y },
         .{ .name = "ORA".*, .code = 0x15, .bytes = 2, .cycles = 4, .mode = .zero_page_x },
         .{ .name = "ORA".*, .code = 0x19, .bytes = 3, .cycles = 4, .mode = .absolute_y },
         .{ .name = "ORA".*, .code = 0x1d, .bytes = 3, .cycles = 4, .mode = .absolute_x },
-        .{ .name = "PHA".*, .code = 0x48, .bytes = 1, .cycles = 3, .mode = null},
-        .{ .name = "PHP".*, .code = 0x08, .bytes = 1, .cycles = 3, .mode = null},
-        .{ .name = "PLA".*, .code = 0x68, .bytes = 1, .cycles = 4, .mode = null},
-        .{ .name = "PLP".*, .code = 0x28, .bytes = 1, .cycles = 4, .mode = null},
+        .{ .name = "PHA".*, .code = 0x48, .bytes = 1, .cycles = 3, .mode = null },
+        .{ .name = "PHP".*, .code = 0x08, .bytes = 1, .cycles = 3, .mode = null },
+        .{ .name = "PLA".*, .code = 0x68, .bytes = 1, .cycles = 4, .mode = null },
+        .{ .name = "PLP".*, .code = 0x28, .bytes = 1, .cycles = 4, .mode = null },
         .{ .name = "ROL".*, .code = 0x26, .bytes = 2, .cycles = 5, .mode = .zero_page },
         .{ .name = "ROL".*, .code = 0x2a, .bytes = 1, .cycles = 2, .mode = .accumulator },
         .{ .name = "ROL".*, .code = 0x2e, .bytes = 3, .cycles = 6, .mode = .absolute },
@@ -408,19 +403,19 @@ const ops = blk: {
         .{ .name = "ROR".*, .code = 0x6e, .bytes = 3, .cycles = 6, .mode = .absolute },
         .{ .name = "ROR".*, .code = 0x76, .bytes = 2, .cycles = 6, .mode = .zero_page_x },
         .{ .name = "ROR".*, .code = 0x7e, .bytes = 3, .cycles = 7, .mode = .absolute_x },
-        .{ .name = "RTI".*, .code = 0x40, .bytes = 1, .cycles = 6, .mode = null},
-        .{ .name = "RTS".*, .code = 0x60, .bytes = 1, .cycles = 6, .mode = null},
+        .{ .name = "RTI".*, .code = 0x40, .bytes = 1, .cycles = 6, .mode = null },
+        .{ .name = "RTS".*, .code = 0x60, .bytes = 1, .cycles = 6, .mode = null },
         .{ .name = "SBC".*, .code = 0xe1, .bytes = 2, .cycles = 6, .mode = .indirect_x },
-        .{ .name = "SBC".*, .code = 0xe5, .bytes = 2, .cycles = 3, .mode = .zero_page},
+        .{ .name = "SBC".*, .code = 0xe5, .bytes = 2, .cycles = 3, .mode = .zero_page },
         .{ .name = "SBC".*, .code = 0xe9, .bytes = 2, .cycles = 2, .mode = .immediate },
         .{ .name = "SBC".*, .code = 0xed, .bytes = 3, .cycles = 4, .mode = .absolute },
         .{ .name = "SBC".*, .code = 0xf1, .bytes = 2, .cycles = 5, .mode = .indirect_y },
         .{ .name = "SBC".*, .code = 0xf5, .bytes = 2, .cycles = 4, .mode = .zero_page_x },
         .{ .name = "SBC".*, .code = 0xf9, .bytes = 3, .cycles = 4, .mode = .absolute_y },
         .{ .name = "SBC".*, .code = 0xfd, .bytes = 3, .cycles = 4, .mode = .absolute_x },
-        .{ .name = "SEC".*, .code = 0x38, .bytes = 1, .cycles = 2, .mode = null},
-        .{ .name = "SED".*, .code = 0xf8, .bytes = 1, .cycles = 2, .mode = null},
-        .{ .name = "SEI".*, .code = 0x78, .bytes = 1, .cycles = 2, .mode = null},
+        .{ .name = "SEC".*, .code = 0x38, .bytes = 1, .cycles = 2, .mode = null },
+        .{ .name = "SED".*, .code = 0xf8, .bytes = 1, .cycles = 2, .mode = null },
+        .{ .name = "SEI".*, .code = 0x78, .bytes = 1, .cycles = 2, .mode = null },
         .{ .name = "STA".*, .code = 0x81, .bytes = 2, .cycles = 6, .mode = .indirect_x },
         .{ .name = "STA".*, .code = 0x85, .bytes = 2, .cycles = 3, .mode = .zero_page },
         .{ .name = "STA".*, .code = 0x8d, .bytes = 3, .cycles = 4, .mode = .absolute },
@@ -455,22 +450,22 @@ fn printOp(cpu: *Cpu, op: Op, w: anytype) void {
     switch (op.mode.?) {
         .indirect_x => {
             const inst = cpu.readMem(cpu.pc + 1);
-            w.print("{s} (${X:0>2}, X)", .{op.name, inst}) catch unreachable;
+            w.print("{s} (${X:0>2}, X)", .{ op.name, inst }) catch unreachable;
         },
-        .absolute  => {
+        .absolute => {
             const msb = (@as(u16, cpu.readMem(cpu.pc + 2)) << 8);
             const lsb = cpu.readMem(cpu.pc + 1);
             const address = msb | lsb;
-            w.print("{s} ${X:0>4}", .{op.name, address}) catch unreachable;
+            w.print("{s} ${X:0>4}", .{ op.name, address }) catch unreachable;
         },
         .immediate => {
             const byte = cpu.readMem(cpu.pc + 1);
-            w.print("{s} #${X:0>2}", .{op.name, byte}) catch unreachable;
+            w.print("{s} #${X:0>2}", .{ op.name, byte }) catch unreachable;
         },
         .zero_page => {
             const address = cpu.readMem(cpu.pc + 1);
             const val = cpu.ram[address];
-            w.print("{s} ${X:0>2} = {X:0>2}", .{op.name, address, val}) catch unreachable;
+            w.print("{s} ${X:0>2} = {X:0>2}", .{ op.name, address, val }) catch unreachable;
         },
         else => w.print("{s}", .{op.name}) catch unreachable,
     }
@@ -479,7 +474,7 @@ fn printOp(cpu: *Cpu, op: Op, w: anytype) void {
 fn doOp(cpu: *Cpu, op: Op) void {
     var buf = std.mem.zeroes([100]u8);
     var fba = std.io.fixedBufferStream(&buf);
-    var w = fba.writer();
+    const w = fba.writer();
 
     const old_pc = cpu.pc;
     const old_ps = cpu.ps;
@@ -493,10 +488,10 @@ fn doOp(cpu: *Cpu, op: Op) void {
     printOp(cpu, op, w);
     switch (op.code) {
         0x00 => {
-            const pc_bytes = @bitCast([2]u8, cpu.pc);
+            const pc_bytes = @as([2]u8, @bitCast(cpu.pc));
             cpu.pushStack(pc_bytes[0]);
             cpu.pushStack(pc_bytes[1]);
-            cpu.pushStack(@bitCast(u8, cpu.ps));
+            cpu.pushStack(@as(u8, @bitCast(cpu.ps)));
             cpu.pc = cpu.absoluteIndexed(0xFFFE);
             cpu.ps.b_flag = true;
         },
@@ -520,12 +515,12 @@ fn doOp(cpu: *Cpu, op: Op) void {
         },
         0xa2, 0xa6, 0xb6, 0xae, 0xbe => {
             cpu.ix = cpu.readMem(cpu.opMem(op));
-            cpu.updateFlags(cpu.ix, .{.z, .n});
+            cpu.updateFlags(cpu.ix, .{ .z, .n });
             if (cpu.page_crossed) cpu.cycle += 1;
         },
         0xa0, 0xa4, 0xb4, 0xac, 0xbc => {
             cpu.iy = cpu.readMem(cpu.opMem(op));
-            cpu.updateFlags(cpu.iy, .{.z, .n});
+            cpu.updateFlags(cpu.iy, .{ .z, .n });
             if (cpu.page_crossed) cpu.cycle += 1;
         },
         0x85, 0x95, 0x8d, 0x9d, 0x99, 0x81, 0x91 => {
@@ -533,17 +528,17 @@ fn doOp(cpu: *Cpu, op: Op) void {
         },
         0x09, 0x05, 0x15, 0x0d, 0x1d, 0x19, 0x01, 0x11 => {
             cpu.acc |= cpu.readMem(cpu.opMem(op));
-            cpu.updateFlags(cpu.acc, .{.z, .n});
+            cpu.updateFlags(cpu.acc, .{ .z, .n });
         },
         0x29, 0x25, 0x35, 0x2d, 0x3d, 0x39, 0x21, 0x31 => {
             cpu.acc &= cpu.readMem(cpu.opMem(op));
-            cpu.updateFlags(cpu.acc, .{.z, .n});
+            cpu.updateFlags(cpu.acc, .{ .z, .n });
         },
         0x49, 0x45, 0x55, 0x4d, 0x5d, 0x59, 0x41, 0x51 => {
             cpu.acc ^= cpu.readMem(cpu.opMem(op));
-            cpu.updateFlags(cpu.acc, .{.z, .n});
+            cpu.updateFlags(cpu.acc, .{ .z, .n });
         },
-        0x86, 0x96, 0x8e  => {
+        0x86, 0x96, 0x8e => {
             cpu.writeMem(cpu.opMem(op), cpu.ix);
         },
         0x84, 0x94, 0x8c => {
@@ -556,13 +551,13 @@ fn doOp(cpu: *Cpu, op: Op) void {
                 cpu.readMem(cpu.pc + 1),
                 cpu.readMem(cpu.pc + 2),
             };
-            const pc = @bitCast([2]u8, cpu.pc + 2);
+            const pc = @as([2]u8, @bitCast(cpu.pc + 2));
             cpu.pushStack(pc[1]);
             cpu.pushStack(pc[0]);
-            cpu.pc = @bitCast(u16, bytes[1..].*);
+            cpu.pc = @as(u16, @bitCast(bytes[1..].*));
             inc_pc = false;
         },
-        0xea, => {
+        0xea => {
             // NOP
         },
         0x38 => {
@@ -624,7 +619,7 @@ fn doOp(cpu: *Cpu, op: Op) void {
         },
         0xa9, 0xa5, 0xb5, 0xad, 0xbd, 0xb9, 0xa1, 0xb1 => {
             cpu.acc = cpu.readMem(cpu.opMem(op));
-            cpu.updateFlags(cpu.acc, .{.z, .n});
+            cpu.updateFlags(cpu.acc, .{ .z, .n });
             if (cpu.page_crossed) cpu.cycle += 1;
         },
         0x24, 0x2c => {
@@ -638,17 +633,15 @@ fn doOp(cpu: *Cpu, op: Op) void {
         0x60 => {
             const a = cpu.popStack();
             const b = cpu.popStack();
-            var pc = ((@as(u16, b) << 8) ^ a) + 1;
-            cpu.pc = pc;
+            cpu.pc = ((@as(u16, b) << 8) ^ a) + 1;
             inc_pc = false;
         },
         0x40 => {
-            cpu.ps = @bitCast(PS, cpu.popStack());
+            cpu.ps = @as(PS, @bitCast(cpu.popStack()));
             cpu.ps.b_flag2 = true; // TODO: is this correct?
             const a = cpu.popStack();
             const b = cpu.popStack();
-            var pc = ((@as(u16, b) << 8) ^ a);
-            cpu.pc = pc;
+            cpu.pc = ((@as(u16, b) << 8) ^ a);
             inc_pc = false;
         },
         0x78 => {
@@ -665,47 +658,44 @@ fn doOp(cpu: *Cpu, op: Op) void {
             // TODO: might not be correct, see https://www.nesdev.org/wiki/Status_flags#The_B_flag
             ps.b_flag = true;
             ps.b_flag2 = true;
-            cpu.pushStack(@bitCast(u8, ps));
+            cpu.pushStack(@as(u8, @bitCast(ps)));
         },
         0x28 => {
-            var ps = @bitCast(PS, cpu.popStack());
+            var ps = @as(PS, @bitCast(cpu.popStack()));
             ps.b_flag = false;
             ps.b_flag2 = true;
             cpu.ps = ps;
         },
         0x68 => {
             cpu.acc = cpu.popStack();
-            cpu.updateFlags(cpu.acc, .{.z, .n});
+            cpu.updateFlags(cpu.acc, .{ .z, .n });
         },
         // TODO: extract common fn (only reg differs) >>>
         0xc9, 0xc5, 0xd5, 0xcd, 0xdd, 0xd9, 0xc1, 0xd1 => {
-            var result: u8 = undefined;
-            const overflowed = @subWithOverflow(u8, cpu.acc, cpu.readMem(cpu.opMem(op)), &result);
-            cpu.ps.carry = result >= 0 and !overflowed;
-            cpu.updateFlags(result, .{.z, .n});
+            const result, const overflowed = @subWithOverflow(cpu.acc, cpu.readMem(cpu.opMem(op)));
+            cpu.ps.carry = result >= 0 and overflowed == 0;
+            cpu.updateFlags(result, .{ .z, .n });
         },
         0xe0, 0xe4, 0xec => {
-            var result: u8 = undefined;
-            const overflowed = @subWithOverflow(u8, cpu.ix, cpu.readMem(cpu.opMem(op)), &result);
-            cpu.ps.carry = result >= 0 and !overflowed;
-            cpu.updateFlags(result, .{.z, .n});
+            const result, const overflowed = @subWithOverflow(cpu.ix, cpu.readMem(cpu.opMem(op)));
+            cpu.ps.carry = result >= 0 and overflowed == 0;
+            cpu.updateFlags(result, .{ .z, .n });
         },
         0xc0, 0xc4, 0xcc => {
-            var result: u8 = undefined;
-            const overflowed = @subWithOverflow(u8, cpu.iy, cpu.readMem(cpu.opMem(op)), &result);
-            cpu.ps.carry = result >= 0 and !overflowed;
-            cpu.updateFlags(result, .{.z, .n});
+            const result, const overflowed = @subWithOverflow(cpu.iy, cpu.readMem(cpu.opMem(op)));
+            cpu.ps.carry = result >= 0 and overflowed == 0;
+            cpu.updateFlags(result, .{ .z, .n });
         },
         // <<<
         0x48 => {
-            cpu.pushStack(@bitCast(u8, cpu.acc));
+            cpu.pushStack(@as(u8, @bitCast(cpu.acc)));
         },
         0x69, 0x65, 0x75, 0x6d, 0x7d, 0x79, 0x61, 0x71 => {
             const value = cpu.readMem(cpu.opMem(op));
             const old = cpu.acc;
             const tmp: u16 = cpu.acc;
-            const new = tmp + value + @boolToInt(cpu.ps.carry);
-            cpu.acc = @truncate(u8, new);
+            const new = tmp + value + @intFromBool(cpu.ps.carry);
+            cpu.acc = @as(u8, @truncate(new));
             cpu.ps.carry = (new >> 8) & 1 == 1;
             cpu.ps.zero = cpu.acc == 0;
             cpu.ps.negative = cpu.acc >> 7 & 1 == 1;
@@ -719,8 +709,8 @@ fn doOp(cpu: *Cpu, op: Op) void {
             const value = ~cpu.readMem(cpu.opMem(op));
             const old = cpu.acc;
             const tmp: u16 = cpu.acc;
-            const new = tmp + value + @boolToInt(cpu.ps.carry);
-            cpu.acc = @truncate(u8, new);
+            const new = tmp + value + @intFromBool(cpu.ps.carry);
+            cpu.acc = @as(u8, @truncate(new));
             cpu.ps.carry = (new >> 8) & 1 == 1;
             cpu.ps.zero = cpu.acc == 0;
             cpu.ps.negative = cpu.acc >> 7 & 1 == 1;
@@ -732,53 +722,53 @@ fn doOp(cpu: *Cpu, op: Op) void {
             const value = cpu.readMem(addr);
             const new_value = value +% 1;
             cpu.writeMem(addr, new_value);
-            cpu.updateFlags(new_value, .{.z, .n});
+            cpu.updateFlags(new_value, .{ .z, .n });
         },
         0xe8 => {
             cpu.ix +%= 1;
-            cpu.updateFlags(cpu.ix, .{.z, .n});
+            cpu.updateFlags(cpu.ix, .{ .z, .n });
         },
         0xc8 => {
             cpu.iy +%= 1;
-            cpu.updateFlags(cpu.iy, .{.z, .n});
+            cpu.updateFlags(cpu.iy, .{ .z, .n });
         },
         0xc6, 0xd6, 0xce, 0xde => {
             const addr = cpu.opMem(op);
             const value = cpu.readMem(addr);
             const new_value = value -% 1;
             cpu.writeMem(addr, new_value);
-            cpu.updateFlags(new_value, .{.z, .n});
+            cpu.updateFlags(new_value, .{ .z, .n });
         },
         0xca => {
             cpu.ix -%= 1;
-            cpu.updateFlags(cpu.ix, .{.z, .n});
+            cpu.updateFlags(cpu.ix, .{ .z, .n });
         },
         0x88 => {
             cpu.iy -%= 1;
-            cpu.updateFlags(cpu.iy, .{.z, .n});
+            cpu.updateFlags(cpu.iy, .{ .z, .n });
         },
         0xaa => {
             cpu.ix = cpu.acc;
-            cpu.updateFlags(cpu.ix, .{.z, .n});
+            cpu.updateFlags(cpu.ix, .{ .z, .n });
         },
         0xa8 => {
             cpu.iy = cpu.acc;
-            cpu.updateFlags(cpu.iy, .{.z, .n});
+            cpu.updateFlags(cpu.iy, .{ .z, .n });
         },
         0xba => {
             cpu.ix = cpu.sp;
-            cpu.updateFlags(cpu.ix, .{.z, .n});
+            cpu.updateFlags(cpu.ix, .{ .z, .n });
         },
         0x8a => {
             cpu.acc = cpu.ix;
-            cpu.updateFlags(cpu.acc, .{.z, .n});
+            cpu.updateFlags(cpu.acc, .{ .z, .n });
         },
         0x9a => {
             cpu.sp = cpu.ix;
         },
         0x98 => {
             cpu.acc = cpu.iy;
-            cpu.updateFlags(cpu.acc, .{.z, .n});
+            cpu.updateFlags(cpu.acc, .{ .z, .n });
         },
         0x4a, 0x46, 0x56, 0x4e, 0x5e => {
             if (op.mode.? == .accumulator) {
@@ -786,14 +776,14 @@ fn doOp(cpu: *Cpu, op: Op) void {
                 const new_value = old >> 1;
                 cpu.acc = new_value;
                 cpu.ps.carry = old & 1 == 1;
-                cpu.updateFlags(new_value, .{.z, .n});
+                cpu.updateFlags(new_value, .{ .z, .n });
             } else {
                 const addr = cpu.opMem(op);
                 const old = cpu.readMem(addr);
                 const new_value = old >> 1;
                 cpu.writeMem(addr, new_value);
                 cpu.ps.carry = old & 1 == 1;
-                cpu.updateFlags(new_value, .{.z, .n});
+                cpu.updateFlags(new_value, .{ .z, .n });
             }
         },
         0x0a, 0x06, 0x16, 0x0e, 0x1e => {
@@ -802,14 +792,14 @@ fn doOp(cpu: *Cpu, op: Op) void {
                 const new_value = old << 1;
                 cpu.acc = new_value;
                 cpu.ps.carry = old >> 7 & 1 == 1;
-                cpu.updateFlags(new_value, .{.z, .n});
+                cpu.updateFlags(new_value, .{ .z, .n });
             } else {
                 const addr = cpu.opMem(op);
                 const old = cpu.readMem(addr);
                 const new_value = old << 1;
                 cpu.writeMem(addr, new_value);
                 cpu.ps.carry = old >> 7 & 1 == 1;
-                cpu.updateFlags(new_value, .{.z, .n});
+                cpu.updateFlags(new_value, .{ .z, .n });
             }
         },
         0x6a, 0x66, 0x76, 0x6e, 0x7e => {
@@ -819,7 +809,7 @@ fn doOp(cpu: *Cpu, op: Op) void {
                 new_value ^= @as(u8, (if (cpu.ps.carry) 1 else 0)) << 7;
                 cpu.acc = new_value;
                 cpu.ps.carry = old & 1 == 1;
-                cpu.updateFlags(new_value, .{.z, .n});
+                cpu.updateFlags(new_value, .{ .z, .n });
             } else {
                 const addr = cpu.opMem(op);
                 const old = cpu.readMem(addr);
@@ -827,7 +817,7 @@ fn doOp(cpu: *Cpu, op: Op) void {
                 new_value ^= @as(u8, (if (cpu.ps.carry) 1 else 0)) << 7;
                 cpu.writeMem(addr, new_value);
                 cpu.ps.carry = old & 1 == 1;
-                cpu.updateFlags(new_value, .{.z, .n});
+                cpu.updateFlags(new_value, .{ .z, .n });
             }
         },
         0x2a, 0x26, 0x36, 0x2e, 0x3e => {
@@ -837,7 +827,7 @@ fn doOp(cpu: *Cpu, op: Op) void {
                 new_value ^= @as(u8, (if (cpu.ps.carry) 1 else 0));
                 cpu.acc = new_value;
                 cpu.ps.carry = old >> 7 & 1 == 1;
-                cpu.updateFlags(new_value, .{.z, .n});
+                cpu.updateFlags(new_value, .{ .z, .n });
             } else {
                 const addr = cpu.opMem(op);
                 const old = cpu.readMem(addr);
@@ -845,7 +835,7 @@ fn doOp(cpu: *Cpu, op: Op) void {
                 new_value ^= @as(u8, (if (cpu.ps.carry) 1 else 0));
                 cpu.writeMem(addr, new_value);
                 cpu.ps.carry = old >> 7 & 1 == 1;
-                cpu.updateFlags(new_value, .{.z, .n});
+                cpu.updateFlags(new_value, .{ .z, .n });
             }
         },
         else => unreachable,
@@ -869,7 +859,7 @@ fn doOp(cpu: *Cpu, op: Op) void {
             old_acc,
             old_ix,
             old_iy,
-            @bitCast(u8, old_ps),
+            @as(u8, @bitCast(old_ps)),
             old_sp,
             cpu.ppu.scanline,
             cpu.ppu.cycle,
@@ -881,8 +871,8 @@ fn doOp(cpu: *Cpu, op: Op) void {
 fn printBytes(buf: []u8, bytes: []const u8) ![]const u8 {
     return switch (bytes.len) {
         1 => try std.fmt.bufPrint(buf, "{X:0>2}      ", .{bytes[0]}),
-        2 => try std.fmt.bufPrint(buf, "{X:0>2} {X:0>2}   ", .{bytes[0], bytes[1]}),
-        3 => try std.fmt.bufPrint(buf, "{X:0>2} {X:0>2} {X:0>2}", .{bytes[0], bytes[1], bytes[2]}),
+        2 => try std.fmt.bufPrint(buf, "{X:0>2} {X:0>2}   ", .{ bytes[0], bytes[1] }),
+        3 => try std.fmt.bufPrint(buf, "{X:0>2} {X:0>2} {X:0>2}", .{ bytes[0], bytes[1], bytes[2] }),
         else => unreachable,
     };
 }

@@ -34,7 +34,7 @@ pub fn parse(allocator: std.mem.Allocator, config_file: []const u8) !Config {
         } else if (std.mem.eql(u8, key, "audio")) {
             config.audio = try parseBool(value);
         } else {
-            std.log.warn("Invalid config key '{s}', line {s}", .{key, line});
+            std.log.warn("Invalid config key '{s}', line {s}", .{ key, line });
             return error.InvalidKey;
         }
     }

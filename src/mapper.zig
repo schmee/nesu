@@ -13,10 +13,7 @@ const std = @import("std");
 //
 // Some ROM-Images additionally contain a 128-byte (or sometimes 127-byte) title at the end of the file.
 
-pub const Mirroring = enum(u1) {
-    horizontal,
-    vertical
-};
+pub const Mirroring = enum(u1) { horizontal, vertical };
 
 pub const Flag6 = packed struct {
     mirroring: Mirroring,
@@ -64,7 +61,6 @@ pub const Mapper = struct {
 
     const Self = @This();
 
-
     pub fn prgRom0(self: *const Self) []const u8 {
         return switch (self.id) {
             .nrom => self.getBank(0),
@@ -82,7 +78,7 @@ pub const Mapper = struct {
     pub fn chrRom0(self: *const Self) []const u8 {
         const h = self.header();
         return switch (self.id) {
-            .nrom => self.bytes[@sizeOf(Header) + @as(usize, h.prg_rom_size) * 0x4000..][0..@as(u16, h.chr_rom_size) * 0x2000],
+            .nrom => self.bytes[@sizeOf(Header) + @as(usize, h.prg_rom_size) * 0x4000 ..][0 .. @as(u16, h.chr_rom_size) * 0x2000],
             .mmc1 => self.getBank(self.chr_bank_0),
         };
     }
@@ -120,7 +116,7 @@ pub const Mapper = struct {
                         self.mmc_reg >>= 1;
                     }
                 }
-            }
+            },
         }
     }
 
@@ -137,7 +133,7 @@ pub const Mapper = struct {
 };
 
 pub fn parseHeader(bytes: []const u8) Header {
-    return @bitCast(Header, bytes[0..16].*);
+    return @as(Header, @bitCast(bytes[0..16].*));
 }
 
 pub fn mapperNumber(header_: Header) u8 {
@@ -151,6 +147,6 @@ pub fn load(rom_data: []const u8) !Mapper {
             1 => .mmc1,
             else => return error.UnsupportedMapper,
         },
-        .bytes = rom_data
+        .bytes = rom_data,
     };
 }

@@ -10,12 +10,11 @@ I've been playing games on emulator since way before I learned programming, and 
 
 Nesu is tested on macOS, it may or may not work on other platforms, you're welcome to give it a try!
 
-1. Download Zig 0.10.1 for your platform from https://ziglang.org/download/.
+1. Download Zig 0.12.0 for your platform from https://ziglang.org/download/.
 1. Clone this repo and `cd` in to it.
-1. Run `git submodule update --init --recursive`
 1. In `config.ini`, set the `roms_path` option to where you keep your ROMs (note: this is relative to the `nesu` folder).
-1. Run `zig build run -Drelease-fast`.
-1. Select your game of choice from the list, and press ENTER to play.
+1. Run `zig build run -Drelease`.
+1. Select your game from the list and press ENTER to play.
 
 ## Controls
 

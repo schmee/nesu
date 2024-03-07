@@ -37,7 +37,7 @@ const Reloader = struct {
     }
 
     fn completion(self: *Self) f32 {
-        return @intToFloat(f32, self.counter) / @intToFloat(f32, self.target);
+        return @as(f32, @floatFromInt(self.counter)) / @as(f32, @floatFromInt(self.target));
     }
 
     fn state(self: *Self) State {
@@ -47,43 +47,44 @@ const Reloader = struct {
             .ticking
         else if (self.counter == self.target + 1)
             .triggered
-        else .locked;
+        else
+            .locked;
     }
 };
 
 pub fn main() !void {
-    var allocator = std.heap.c_allocator;
+    const allocator = std.heap.c_allocator;
 
     const config_file = try std.fs.cwd().readFileAlloc(allocator, "config.ini", 100_000);
     const config = try _config.parse(allocator, config_file);
 
     const screen_width = 256;
     const screen_height = 240;
-    rl.SetTargetFPS(60);
-    rl.SetWindowState(.FLAG_VSYNC_HINT);
-    rl.InitWindow(screen_width * 2, screen_height * 2, "Nesu");
+    rl.setTargetFPS(60);
+    rl.setWindowState(.flag_vsync_hint);
+    rl.initWindow(screen_width * 2, screen_height * 2, "Nesu");
     var framebuffer: [screen_height][screen_width]rl.Color = undefined;
     const image = rl.Image{
         .data = &framebuffer,
         .width = screen_width,
         .height = screen_height,
         .mipmaps = 1,
-        .format = rl.PIXELFORMAT_UNCOMPRESSED_R8G8B8A8,
+        .format = rl.PixelFormat.pixelformat_uncompressed_r8g8b8a8,
     };
-    const texture = rl.LoadTextureFromImage(image);
-    defer rl.UnloadTexture(texture);
+    const texture = rl.loadTextureFromImage(image);
+    defer rl.unloadTexture(texture);
 
     var ui_state: UiState = .game_list;
 
     resampler = try Resampler.init(allocator, sample_rate);
     var audio_stream: rl.AudioStream = undefined;
     if (config.audio) {
-        rl.InitAudioDevice();
-        rl.SetAudioStreamBufferSizeDefault(4096);
-        audio_stream = rl.LoadAudioStream(sample_rate, 16, 1);
-        rl.SetAudioStreamCallback(audio_stream, &audioInputCallback);
-        rl.PlayAudioStream(audio_stream);
-        rl.SetAudioStreamVolume(audio_stream, 0.2);
+        rl.initAudioDevice();
+        rl.setAudioStreamBufferSizeDefault(4096);
+        audio_stream = rl.loadAudioStream(sample_rate, 16, 1);
+        rl.setAudioStreamCallback(audio_stream, &audioInputCallback);
+        rl.playAudioStream(audio_stream);
+        rl.setAudioStreamVolume(audio_stream, 0.2);
     }
 
     var loaded_rom: ?[]const u8 = null;
@@ -101,55 +102,55 @@ pub fn main() !void {
     var game_list = try GameList.init(allocator, config.roms_path);
     defer game_list.deinit();
 
-    while (!rl.WindowShouldClose()) {
+    while (!rl.windowShouldClose()) {
         var input = Input{};
         if (ui_state == .game_list) {
-            if (rl.IsKeyPressed(rl.KeyboardKey.KEY_TAB)) {
+            if (rl.isKeyPressed(.key_tab)) {
                 ui_state = .play;
                 game_list.reset();
             }
 
-            if (rl.IsKeyPressed(.KEY_BACKSPACE)) {
+            if (rl.isKeyPressed(.key_backspace)) {
                 game_list.searchDelete();
             }
 
-            var c: u8 = @intCast(u8, rl.GetCharPressed());
-            while (c != 0) : (c = @intCast(u8, rl.GetCharPressed())) {
+            var c: u8 = @as(u8, @intCast(rl.getCharPressed()));
+            while (c != 0) : (c = @as(u8, @intCast(rl.getCharPressed()))) {
                 try game_list.searchAdd(std.ascii.toLower(c));
             }
 
-            if (rl.IsKeyPressed(.KEY_DOWN) or (rl.IsKeyDown(.KEY_LEFT_CONTROL) and rl.IsKeyPressed(.KEY_J))) {
+            if (rl.isKeyPressed(.key_down) or (rl.isKeyDown(.key_left_control) and rl.isKeyPressed(.key_j))) {
                 game_list.next();
             }
 
-            if (rl.IsKeyPressed(.KEY_UP) or (rl.IsKeyDown(.KEY_LEFT_CONTROL) and rl.IsKeyPressed(.KEY_K))) {
+            if (rl.isKeyPressed(.key_up) or (rl.isKeyDown(.key_left_control) and rl.isKeyPressed(.key_k))) {
                 game_list.prev();
             }
 
-            if (rl.IsKeyPressed(.KEY_ENTER)) {
+            if (rl.isKeyPressed(.key_enter)) {
                 loaded_rom = try game_list.getSelected();
                 try loadRom(allocator, &ui_state, loaded_rom.?, &cpu, &cpu_ram, &ppu, &apu);
                 game_list.reset();
             }
         } else {
-            if (rl.IsKeyPressed(rl.KeyboardKey.KEY_P)) {
+            if (rl.isKeyPressed(.key_p)) {
                 paused = !paused;
             }
 
-            if (rl.IsKeyPressed(rl.KeyboardKey.KEY_EIGHT)) {
+            if (rl.isKeyPressed(.key_eight)) {
                 // std.log.info("PRESSED 'L'", .{});
                 cpu.log_instructions = !cpu.log_instructions;
             }
 
-            if (rl.IsKeyPressed(rl.KeyboardKey.KEY_G)) {
+            if (rl.isKeyPressed(.key_g)) {
                 ppu.logging = !ppu.logging;
             }
 
-            if (rl.IsKeyPressed(rl.KeyboardKey.KEY_S)) {
+            if (rl.isKeyPressed(.key_s)) {
                 step = !step;
             }
 
-            if (rl.IsKeyPressed(rl.KeyboardKey.KEY_N)) {
+            if (rl.isKeyPressed(.key_n)) {
                 switch (ui_state) {
                     .nametable => |*i| {
                         i.* += 1;
@@ -159,58 +160,58 @@ pub fn main() !void {
                 }
             }
 
-            if (rl.IsKeyPressed(rl.KeyboardKey.KEY_O)) {
+            if (rl.isKeyPressed(.key_o)) {
                 ui_state = if (ui_state == .oam) .play else .oam;
             }
 
-            if (rl.IsKeyPressed(rl.KeyboardKey.KEY_C)) {
+            if (rl.isKeyPressed(.key_c)) {
                 draw_fps_counter = !draw_fps_counter;
             }
 
-            if (rl.IsKeyDown(rl.KeyboardKey.KEY_LEFT)) {
+            if (rl.isKeyDown(.key_left)) {
                 input.left = true;
             }
 
-            if (rl.IsKeyDown(rl.KeyboardKey.KEY_RIGHT)) {
+            if (rl.isKeyDown(.key_right)) {
                 input.right = true;
             }
 
-            if (rl.IsKeyDown(rl.KeyboardKey.KEY_UP)) {
+            if (rl.isKeyDown(.key_up)) {
                 input.up = true;
             }
 
-            if (rl.IsKeyDown(rl.KeyboardKey.KEY_DOWN)) {
+            if (rl.isKeyDown(.key_down)) {
                 input.down = true;
             }
 
-            if (rl.IsKeyPressed(rl.KeyboardKey.KEY_ENTER)) {
+            if (rl.isKeyPressed(.key_enter)) {
                 input.start = true;
             }
 
-            if (rl.IsKeyDown(rl.KeyboardKey.KEY_V)) {
+            if (rl.isKeyDown(.key_v)) {
                 input.select = true;
             }
 
-            if (rl.IsKeyDown(rl.KeyboardKey.KEY_F)) {
+            if (rl.isKeyDown(.key_f)) {
                 input.a = true;
             }
 
-            if (rl.IsKeyDown(rl.KeyboardKey.KEY_D)) {
+            if (rl.isKeyDown(.key_d)) {
                 input.b = true;
             }
 
-            if (rl.IsKeyPressed(rl.KeyboardKey.KEY_X)) {
+            if (rl.isKeyPressed(.key_x)) {
                 apu.resampler.mutex.lock();
                 apu.resampler.do_filter = !apu.resampler.do_filter;
                 apu.resampler.mutex.unlock();
             }
 
-            if (rl.IsKeyPressed(rl.KeyboardKey.KEY_L)) {
+            if (rl.isKeyPressed(.key_l)) {
                 ui_state = .game_list;
                 std.log.info("state {}", .{ui_state});
             }
 
-            if (rl.IsKeyDown(.KEY_R)) {
+            if (rl.isKeyDown(.key_r)) {
                 reloader.tick();
             } else {
                 reloader.reset();
@@ -225,14 +226,14 @@ pub fn main() !void {
 
                 if (cpu.read_input) {
                     read = true;
-                    cpu.writeInput(@bitCast(u8, input));
+                    cpu.writeInput(@as(u8, @bitCast(input)));
                 } else if (read and !cpu.read_input) {
                     read = false;
                 }
 
                 const cycles = cpu.step();
 
-                var apu_cycle_target = cpu.cycle;
+                const apu_cycle_target = cpu.cycle;
                 var i: usize = apu.total_cycles;
                 while (i < apu_cycle_target) : (i += 1) {
                     apu.step();
@@ -258,17 +259,17 @@ pub fn main() !void {
         switch (ui_state) {
             .nametable => |i| renderNametable(&ppu, &framebuffer, i),
             .oam => {
-                for (framebuffer) |*row| {
-                    std.mem.set(rl.Color, row, rl.BLACK);
+                for (&framebuffer) |*row| {
+                    @memset(row, rl.Color.black);
                 }
                 renderOam(&ppu, &framebuffer);
             },
             .unsupported_mapper => {},
-            else => for (ppu.frame) |*scanline, i| {
-                for (scanline) |*pixel, j| {
+            else => for (&ppu.frame, 0..) |*scanline, i| {
+                for (scanline, 0..) |*pixel, j| {
                     framebuffer[i][j] = colors[pixel.*];
                 }
-            }
+            },
         }
         // const frame_end = try std.time.Instant.now();
 
@@ -276,60 +277,60 @@ pub fn main() !void {
         step = false;
 
         var buf = std.mem.zeroes([30]u8);
-        const fps_str = if (draw_fps_counter) try std.fmt.bufPrintZ(&buf, "FPS: {d}", .{rl.GetFPS()}) else undefined;
+        const fps_str = if (draw_fps_counter) try std.fmt.bufPrintZ(&buf, "FPS: {d}", .{rl.getFPS()}) else undefined;
 
-        rl.BeginDrawing();
+        rl.beginDrawing();
 
         const scale: f32 = if (ui_state == .oam) 5 else 2;
-        rl.UpdateTexture(texture, &framebuffer);
-        rl.DrawTextureEx(texture, rl.Vector2{ .x = 0, .y = 0}, 0, scale, rl.WHITE);
+        rl.updateTexture(texture, &framebuffer);
+        rl.drawTextureEx(texture, rl.Vector2{ .x = 0, .y = 0 }, 0, scale, rl.Color.white);
 
         switch (ui_state) {
             .game_list => {
-                rl.DrawRectangle(0, 0, 2 * screen_width, 2 * screen_height, rl.Color{ .r = 0, .g = 0, .b = 0, .a = 215});
-                rl.DrawText("LOAD GAME", 20, 20, 36, rl.WHITE);
-                rl.DrawText("Type to filter", 250, 15, 20, rl.WHITE);
-                rl.DrawText("ENTER selects", 250, 45, 20, rl.WHITE);
+                rl.drawRectangle(0, 0, 2 * screen_width, 2 * screen_height, rl.Color{ .r = 0, .g = 0, .b = 0, .a = 215 });
+                rl.drawText("LOAD GAME", 20, 20, 36, rl.Color.white);
+                rl.drawText("Type to filter", 250, 15, 20, rl.Color.white);
+                rl.drawText("ENTER selects", 250, 45, 20, rl.Color.white);
                 var subbuf = std.mem.zeroes([50]u8);
                 const sub = try std.fmt.bufPrintZ(&subbuf, "{s}_", .{game_list.search_string.items});
-                rl.DrawText(sub.ptr, 20, 50, 36, rl.WHITE);
-                for (game_list.filtered.items) |name, i| {
-                    const color = if (i == game_list.selected) rl.RED else rl.WHITE;
-                    rl.DrawText(name.ptr, 20, 30 * @intCast(c_int, i) + 100, 32, color);
+                rl.drawText(sub, 20, 50, 36, rl.Color.white);
+                for (game_list.filtered.items, 0..) |name, i| {
+                    const color = if (i == game_list.selected) rl.Color.red else rl.Color.white;
+                    rl.drawText(name, 20, 30 * @as(c_int, @intCast(i)) + 100, 32, color);
                 }
             },
             .nametable => {
                 var tbuf = std.mem.zeroes([100]u8);
                 const out = try std.fmt.bufPrintZ(&tbuf, "NT INDEX {d}", .{ui_state.nametable});
-                rl.DrawText(out.ptr, 100, 10, 20, rl.RED);
+                rl.drawText(out, 100, 10, 20, rl.Color.red);
             },
             .unsupported_mapper => {
-                rl.DrawRectangle(0, 0, 2 * screen_width, 2 * screen_height, rl.Color{ .r = 0, .g = 0, .b = 0, .a = 215});
+                rl.drawRectangle(0, 0, 2 * screen_width, 2 * screen_height, rl.Color{ .r = 0, .g = 0, .b = 0, .a = 215 });
 
                 const font_size = 22;
                 var tbuf = std.mem.zeroes([100]u8);
 
                 const str1 = try std.fmt.bufPrintZ(&tbuf, "Could not load ROM '{s}'", .{loaded_rom.?});
-                const len1 = rl.MeasureText(str1.ptr, font_size);
-                rl.DrawText(str1.ptr, screen_width - @divFloor(len1, 2), screen_height - 12, font_size, rl.WHITE);
+                const len1 = rl.measureText(str1, font_size);
+                rl.drawText(str1, screen_width - @divFloor(len1, 2), screen_height - 12, font_size, rl.Color.white);
 
                 const str2 = try std.fmt.bufPrintZ(&tbuf, "Unsupported mapper '{d}'", .{ui_state.unsupported_mapper});
-                const len2 = rl.MeasureText(str2.ptr, font_size);
-                rl.DrawText(str2.ptr, screen_width - @divFloor(len2, 2), screen_height + 12, font_size, rl.WHITE);
+                const len2 = rl.measureText(str2, font_size);
+                rl.drawText(str2, screen_width - @divFloor(len2, 2), screen_height + 12, font_size, rl.Color.white);
             },
             else => {},
         }
 
         if (draw_fps_counter) {
-            rl.DrawRectangle(screen_width * 2 - 110, screen_height * 2 - 40, 100, 100, rl.Color{ .r = 0, .g = 0, .b = 0, .a = 150});
-            rl.DrawText(fps_str.ptr, screen_width * 2 - 100, screen_height * 2 - 30, 20, rl.WHITE);
+            rl.drawRectangle(screen_width * 2 - 110, screen_height * 2 - 40, 100, 100, rl.Color{ .r = 0, .g = 0, .b = 0, .a = 150 });
+            rl.drawText(fps_str, screen_width * 2 - 100, screen_height * 2 - 30, 20, rl.Color.white);
         }
 
         switch (reloader.state()) {
             .ticking => {
-                rl.DrawText("R", 37, screen_height * 2 - 65, 46, rl.WHITE);
-                const center = rl.Vector2{ .x = 50, .y = 2 * screen_height - 45};
-                rl.DrawRing(center, 30, 40, 180, 180 - 360 * reloader.completion(), 50, rl.WHITE);
+                rl.drawText("R", 37, screen_height * 2 - 65, 46, rl.Color.white);
+                const center = rl.Vector2{ .x = 50, .y = 2 * screen_height - 45 };
+                rl.drawRing(center, 30, 40, 180, 180 - 360 * reloader.completion(), 50, rl.Color.white);
             },
             .triggered => {
                 try loadRom(allocator, &ui_state, loaded_rom.?, &cpu, &cpu_ram, &ppu, &apu);
@@ -337,21 +338,21 @@ pub fn main() !void {
             else => {},
         }
 
-        rl.EndDrawing();
+        rl.endDrawing();
     }
 
-    rl.CloseWindow();
+    rl.closeWindow();
 }
 
 const sample_rate: f32 = 48000.0;
 var resampler: Resampler = undefined;
 var n_callbacks: usize = 0;
 
-fn audioInputCallback(ptr: *anyopaque, frames: i32) void {
-    const buffer = @ptrCast([*]i16, @alignCast(2, ptr));
+fn audioInputCallback(ptr: ?*anyopaque, frames: c_uint) callconv(.C) void {
+    const buffer: [*]i16 = @ptrCast(@alignCast(ptr));
     // const start = std.time.Instant.now() catch unreachable;
     // std.log.info("{d} DRAIN -> START", .{n_callbacks});
-    resampler.drain(buffer[0..@intCast(usize, frames)]);
+    resampler.drain(buffer[0..@as(usize, @intCast(frames))]);
     // const end = std.time.Instant.now() catch unreachable;
     // std.log.info("DRAIN -> DONE  | time {} frames {d}", .{std.fmt.fmtDuration(end.since(start)), frames});
     n_callbacks += 1;
@@ -365,16 +366,16 @@ const Input = packed struct {
     up: bool = false,
     down: bool = false,
     left: bool = false,
-    right: bool = false
+    right: bool = false,
 };
 
 fn loadRom(allocator: Allocator, ui_state: *UiState, filename: []const u8, cpu: *Cpu, cpu_ram: *[_cpu.ram_size]u8, ppu: *Ppu, apu: *Apu) !void {
     const rom_data = try std.fs.cwd().readFileAlloc(allocator, filename, 500_000);
-    var the_mapper = try allocator.create(mapper.Mapper);
+    const the_mapper = try allocator.create(mapper.Mapper);
     the_mapper.* = mapper.load(rom_data) catch |err| switch (err) {
         error.UnsupportedMapper => {
             const header = mapper.parseHeader(rom_data);
-            ui_state.* = . { .unsupported_mapper = mapper.mapperNumber(header) };
+            ui_state.* = .{ .unsupported_mapper = mapper.mapperNumber(header) };
             return;
         },
         else => |e| return e,
@@ -392,11 +393,11 @@ fn loadRom(allocator: Allocator, ui_state: *UiState, filename: []const u8, cpu: 
     ppu.mapRom(the_mapper);
 
     // Set the RAM to the same pattern as fceux
-    for (cpu.ram[0x0000 .. 0x1FFF]) |*byte, i| {
+    for (cpu.ram[0x0000..0x1FFF], 0..) |*byte, i| {
         byte.* = switch (i % 8) {
             0...3 => 0x00,
             4...7 => 0xFF,
-            else => unreachable
+            else => unreachable,
         };
     }
     cpu.pc = cpu.absoluteIndexed(0xFFFC);
@@ -412,9 +413,9 @@ const UiState = union(enum) {
 
 const GameList = struct {
     allocator: Allocator,
-    roms_path: []const u8,
-    all: std.ArrayListUnmanaged([]const u8) = .{},
-    filtered: std.ArrayListUnmanaged([]const u8) = .{},
+    roms_path: [:0]const u8,
+    all: std.ArrayListUnmanaged([:0]const u8) = .{},
+    filtered: std.ArrayListUnmanaged([:0]const u8) = .{},
     search_string: std.ArrayListUnmanaged(u8) = .{},
     selected: usize = 0,
 
@@ -425,14 +426,14 @@ const GameList = struct {
             .allocator = allocator,
             .roms_path = try allocator.dupeZ(u8, roms_path),
         };
-        var dir = try std.fs.cwd().openIterableDir(roms_path, .{});
+        var dir = try std.fs.cwd().openDir(roms_path, .{});
         defer dir.close();
         var it = dir.iterate();
         while (try it.next()) |e| {
             if (std.ascii.endsWithIgnoreCase(e.name, ".nes"))
                 try game_list.all.append(allocator, try allocator.dupeZ(u8, e.name));
         }
-        std.sort.sort([]const u8, game_list.all.items, {}, Self.orderStrings);
+        std.sort.pdq([]const u8, game_list.all.items, {}, Self.orderStrings);
         try game_list.filtered.appendSlice(allocator, game_list.all.items);
 
         return game_list;
@@ -448,7 +449,7 @@ const GameList = struct {
     }
 
     fn getSelected(self: *Self) ![]const u8 {
-        return std.fmt.allocPrint(self.allocator, "{s}/{s}", .{self.roms_path, self.filtered.items[self.selected]});
+        return std.fmt.allocPrint(self.allocator, "{s}/{s}", .{ self.roms_path, self.filtered.items[self.selected] });
     }
 
     fn refresh(self: *Self) !void {
@@ -493,6 +494,7 @@ const GameList = struct {
     }
 };
 
+// zig fmt: off
 const colors = [64]rl.Color{
     .{ .r = 124, .g = 124, .b = 124, .a = 255 },
     .{ .r = 0,   .g = 0,   .b = 252, .a = 255 },
@@ -559,6 +561,7 @@ const colors = [64]rl.Color{
     .{ .r = 0,   .g = 0,   .b = 0,   .a = 255 },
     .{ .r = 0,   .g = 0,   .b = 0,   .a = 255 },
 };
+// zig fmt: on
 
 // For debug view rendering
 

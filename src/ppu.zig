@@ -22,15 +22,18 @@ const SpriteAttrs = packed struct {
 };
 
 pub const Oam = struct {
-    data: [256]u8,
+    data: [256]u8 align(4),
 
     pub const len = 64;
 
     const Self = @This();
 
     pub fn get(self: *Self, index: u8) *Sprite {
+        // @compileLog(@typeInfo(Oam).Struct.fields);
+        // @compileLog(@alignOf(Sprite));
+        // @compileLog(@alignOf(Oam));
         std.debug.assert(index < 64);
-        return @ptrCast(*Sprite, @alignCast(4, self.data[index * 4..][0..4]));
+        return @ptrCast(@alignCast(self.data[index * 4 ..][0..4]));
     }
 };
 
@@ -76,7 +79,7 @@ pub const TileRow = struct {
 
     pub fn getCol(self: Self, col: u16) u2 {
         std.debug.assert(col < 8);
-        return @truncate(u2, self.row >> @intCast(u4, (7 - col) * 2));
+        return @as(u2, @truncate(self.row >> @as(u4, @intCast((7 - col) * 2))));
     }
 };
 
@@ -89,8 +92,8 @@ pub const PatternTable = struct {
         std.debug.assert(tile < 256);
         std.debug.assert(row < 8);
         const pattern_index = tile * 16 + row;
-        var low = self.data[pattern_index];
-        var high = self.data[pattern_index + 8];
+        const low = self.data[pattern_index];
+        const high = self.data[pattern_index + 8];
         return TileRow{ .row = interleave0(low) ^ (interleave0(high) << 1) };
     }
 
@@ -115,14 +118,14 @@ pub const AttributeTable = struct {
         const attr = self.data[attr_index];
         const rowq = (tile_row / 2) % 2;
         const colq = (tile_col / 2) % 2;
-        const shift = @intCast(u3, (rowq << 1) ^ colq);
+        const shift = @as(u3, @intCast((rowq << 1) ^ colq));
         return (attr >> (shift * 2)) & 0b11;
     }
 
     pub fn shiftAttr(attr: u8, tile_row: u16, tile_col: u16) u8 {
         const rowq = (tile_row / 2) % 2;
         const colq = (tile_col / 2) % 2;
-        const shift = @intCast(u3, (rowq << 1) ^ colq);
+        const shift = @as(u3, @intCast((rowq << 1) ^ colq));
         return (attr >> (shift * 2)) & 0b11;
     }
 };
@@ -147,8 +150,8 @@ const VramRegister = struct {
     // ||| || +++++-------- coarse Y scroll
     // ||| ++-------------- nametable select
     // +++----------------- fine Y scroll
-    reg: AddressRegister = @bitCast(AddressRegister, @as(u15, 0)),
-    tmp: AddressRegister = @bitCast(AddressRegister, @as(u15, 0)),
+    reg: AddressRegister = @as(AddressRegister, @bitCast(@as(u15, 0))),
+    tmp: AddressRegister = @as(AddressRegister, @bitCast(@as(u15, 0))),
     x_fine: u3 = 0,
     state: u1 = 0,
 
@@ -158,44 +161,40 @@ const VramRegister = struct {
         switch (register) {
             .scroll => switch (self.state) {
                 0 => {
-                    self.x_fine = @truncate(u3, v);
-                    self.tmp.x_coarse = @truncate(u5, v >> 3);
+                    self.x_fine = @as(u3, @truncate(v));
+                    self.tmp.x_coarse = @as(u5, @truncate(v >> 3));
                     self.state = 1;
                 },
                 1 => {
-                    self.tmp.y_fine = @truncate(u3, v);
-                    self.tmp.y_coarse = @truncate(u5, v >> 3);
+                    self.tmp.y_fine = @as(u3, @truncate(v));
+                    self.tmp.y_coarse = @as(u5, @truncate(v >> 3));
                     self.state = 0;
-                }
+                },
             },
             .addr => switch (self.state) {
                 0 => {
-                    const S = packed struct {
-                        lo: u8,
-                        hi: u6,
-                        bit: u1
-                    };
-                    var p = @ptrCast(*S, &self.tmp);
-                    p.hi = @truncate(u6, v);
+                    const S = packed struct { lo: u8, hi: u6, bit: u1 };
+                    var p = @as(*S, @ptrCast(&self.tmp));
+                    p.hi = @as(u6, @truncate(v));
                     p.bit = 0;
                     self.state = 1;
                 },
                 1 => {
-                    var p = @ptrCast(*[2]u8, &self.tmp);
+                    var p = @as(*[2]u8, @ptrCast(&self.tmp));
                     p[0] = v;
                     self.reg = self.tmp;
                     self.state = 0;
-                }
-            }
+                },
+            },
         }
     }
 
     fn regInt(self: *Self) u15 {
-        return @bitCast(u15, self.reg);
+        return @as(u15, @bitCast(self.reg));
     }
 
     fn addr(self: *Self) u14 {
-        return @truncate(u14, self.regInt());
+        return @as(u14, @truncate(self.regInt()));
     }
 
     // https://www.nesdev.org/wiki/PPU_scrolling#Tile_and_attribute_fetching
@@ -240,7 +239,7 @@ const VramRegister = struct {
 pub const Ppu = struct {
     vram: [vram_size]u8 = std.mem.zeroes([vram_size]u8),
     palette: [32]u8 = std.mem.zeroes([32]u8),
-    oam: [256]u8 = std.mem.zeroes([256]u8),
+    oam: [256]u8 align(4) = std.mem.zeroes([256]u8),
     pixels: [256]u8 = std.mem.zeroes([256]u8),
     frame: [240][256]u8 = std.mem.zeroes([240][256]u8),
 
@@ -248,9 +247,9 @@ pub const Ppu = struct {
     cycle: u16 = 0,
     total_cycle: usize = 0,
 
-    reg_ctrl: RegCtrl = @bitCast(RegCtrl, @as(u8, 0)),
-    reg_mask: RegMask = @bitCast(RegMask, @as(u8, 0)),
-    reg_status: RegStatus = @bitCast(RegStatus, @as(u8, 0b1010_0000)),
+    reg_ctrl: RegCtrl = @as(RegCtrl, @bitCast(@as(u8, 0))),
+    reg_mask: RegMask = @as(RegMask, @bitCast(@as(u8, 0))),
+    reg_status: RegStatus = @as(RegStatus, @bitCast(@as(u8, 0b1010_0000))),
 
     cpu: *Cpu,
 
@@ -270,11 +269,11 @@ pub const Ppu = struct {
     }
 
     pub fn patternTableLeft(self: *Self) *PatternTable {
-        return @ptrCast(*PatternTable, self.vram[0x0000..0x1000]);
+        return @as(*PatternTable, @ptrCast(self.vram[0x0000..0x1000]));
     }
 
     pub fn patternTableRight(self: *Self) *PatternTable {
-        return @ptrCast(*PatternTable, self.vram[0x1000..0x2000]);
+        return @as(*PatternTable, @ptrCast(self.vram[0x1000..0x2000]));
     }
 
     pub fn getBackgroundPatternTable(self: *Self) *PatternTable {
@@ -292,21 +291,21 @@ pub const Ppu = struct {
     }
 
     pub fn regStatus(self: *Self) u8 {
-        const old = @bitCast(u8, self.reg_status);
+        const old = @as(u8, @bitCast(self.reg_status));
         self.vram_register.state = 0;
         self.reg_status.vblank = false;
         return old;
     }
 
     pub fn writeRegMask(self: *Self, byte: u8) void {
-        self.reg_mask = @bitCast(RegMask, byte);
+        self.reg_mask = @as(RegMask, @bitCast(byte));
     }
 
     pub fn writeRegCtrl(self: *Self, byte: u8) void {
         const old = self.reg_ctrl;
-        self.reg_ctrl = @bitCast(RegCtrl, byte);
-        self.vram_register.tmp.h_nametable = @truncate(u1, byte);
-        self.vram_register.tmp.v_nametable = @truncate(u1, byte >> 1);
+        self.reg_ctrl = @as(RegCtrl, @bitCast(byte));
+        self.vram_register.tmp.h_nametable = @as(u1, @truncate(byte));
+        self.vram_register.tmp.v_nametable = @as(u1, @truncate(byte >> 1));
         if (!old.generate_nmi and self.reg_ctrl.generate_nmi and self.reg_status.vblank)
             self.cpu.nmi = true;
     }
@@ -336,10 +335,10 @@ pub const Ppu = struct {
     }
 
     const palette_mirror_pairs = [_][2]u16{
-        .{0x3F00, 0x3F10},
-        .{0x3F04, 0x3F14},
-        .{0x3F08, 0x3F18},
-        .{0x3F0C, 0x3F1C},
+        .{ 0x3F00, 0x3F10 },
+        .{ 0x3F04, 0x3F14 },
+        .{ 0x3F08, 0x3F18 },
+        .{ 0x3F0C, 0x3F1C },
     };
 
     pub fn writeVram(self: *Self, byte: u8) void {
@@ -408,12 +407,12 @@ pub const Ppu = struct {
             0 => 1,
             1 => 32,
         };
-        self.vram_register.reg = @bitCast(AddressRegister, @bitCast(u15, self.vram_register.reg) + increment);
+        self.vram_register.reg = @as(AddressRegister, @bitCast(@as(u15, @bitCast(self.vram_register.reg)) + increment));
     }
 
     pub fn mapRom(self: *Self, the_mapper: *const Mapper) void {
         if (the_mapper.id == .nrom) {
-            std.mem.copy(u8, self.vram[0..], the_mapper.chrRom0());
+            @memcpy(self.vram[0..the_mapper.chrRom0().len], the_mapper.chrRom0());
             self.mirroring = the_mapper.header().flags6.mirroring;
         }
     }
@@ -427,11 +426,11 @@ pub const Ppu = struct {
     pub fn getAttributeTable(self: *Self, index: u16) *AttributeTable {
         std.debug.assert(index > 0 and index < 5);
         const addr = 0x2000 + index * 0x400 - 64;
-        return @ptrCast(*AttributeTable, self.vram[addr..][0..64]);
+        return @as(*AttributeTable, @ptrCast(self.vram[addr..][0..64]));
     }
 
     pub fn getOam(self: *Self) *Oam {
-        return @ptrCast(*Oam, &self.oam);
+        return @ptrCast(@alignCast(&self.oam));
     }
 
     pub fn getPalette(self: *Self, index: u8) *[4]u8 {
@@ -468,8 +467,8 @@ pub const Ppu = struct {
 
     fn fetchPixel(self: *Self) u8 {
         const prev_cycle = self.prevCycle();
-        var row: u16 = self.vram_register.reg.y_fine;
-        var col = prev_cycle + self.vram_register.x_fine;
+        const row: u16 = self.vram_register.reg.y_fine;
+        const col = prev_cycle + self.vram_register.x_fine;
 
         // Load new tile
         if (col % 8 == 0 or tile_cache.bg_palette == null) {
@@ -480,12 +479,8 @@ pub const Ppu = struct {
             const attr_addr = self.vram_register.getAttributeAddress();
             const attr = self.vram[attr_addr];
             if (self.logging)
-                std.log.info("scanline {d} cycle {d} -> nt addr {X:0>4} attr addr {X:0>4} nt {X:0>4} attr {X:0>4} x fine {d}", .{self.scanline, self.cycle, nt_addr, attr_addr, nt, attr, self.vram_register.x_fine});
-            const bg_palette_index = AttributeTable.shiftAttr(
-                attr,
-                self.vram_register.reg.y_coarse,
-                self.vram_register.reg.x_coarse
-            );
+                std.log.info("scanline {d} cycle {d} -> nt addr {X:0>4} attr addr {X:0>4} nt {X:0>4} attr {X:0>4} x fine {d}", .{ self.scanline, self.cycle, nt_addr, attr_addr, nt, attr, self.vram_register.x_fine });
+            const bg_palette_index = AttributeTable.shiftAttr(attr, self.vram_register.reg.y_coarse, self.vram_register.reg.x_coarse);
             const bg_palette = self.getPalette(bg_palette_index);
             tile_cache.row = pt.getTileRow(nt, row);
             tile_cache.bg_palette = bg_palette;
@@ -524,7 +519,7 @@ pub const Ppu = struct {
                     0 => self.patternTableLeft(),
                     1 => self.patternTableRight(),
                     else => unreachable,
-                }
+                },
             };
             const srow = if (attrs.flip_vertical) (self.spriteSize() - 1 - (self.scanline - y)) else (self.scanline - y);
             const sprite_palette = self.getSpritePalette(attrs.palette);
@@ -546,8 +541,8 @@ pub const Ppu = struct {
             if (i == 0 and oam_cache.sprite_zero_hit and
                 self.reg_mask.show_background and bg_opaque and
                 sprite_opaque and
-                x != 255 and !((self.reg_mask.show_background_left or self.reg_mask.show_sprite_left) and x > 0 and x < 8)
-            ) {
+                x != 255 and !((self.reg_mask.show_background_left or self.reg_mask.show_sprite_left) and x > 0 and x < 8))
+            {
                 self.reg_status.sprite_zero_hit = true;
             }
 
@@ -574,7 +569,7 @@ pub const Ppu = struct {
 
         fn invalidate(self: *C) void {
             self.sprite_zero_hit = false;
-            for (self.active_sprites) |*array| {
+            for (&self.active_sprites) |*array| {
                 array.len = 0;
             }
         }
@@ -596,7 +591,7 @@ pub const Ppu = struct {
                     while (j < self.spriteSize()) : (j += 1) {
                         const yy = y + j;
                         if (yy >= 240) break;
-                        oam_cache.active_sprites[yy].append(.{ .index = @intCast(u7, i), .upper = j < 8}) catch break;
+                        oam_cache.active_sprites[yy].append(.{ .index = @as(u7, @intCast(i)), .upper = j < 8 }) catch break;
                     }
                     if (i == 0) {
                         oam_cache.sprite_zero_hit = true;
@@ -637,13 +632,13 @@ pub const Ppu = struct {
                 }
             },
             260 => switch (self.cycle) {
-                0 => self.reg_status = @bitCast(RegStatus, @as(u8, 0)),
+                0 => self.reg_status = @as(RegStatus, @bitCast(@as(u8, 0))),
                 280 => if (self.reg_mask.show_background or self.reg_mask.show_sprites) {
                     self.vram_register.reg.y_coarse = self.vram_register.tmp.y_coarse;
                     self.vram_register.reg.y_fine = self.vram_register.tmp.y_fine;
                     self.vram_register.reg.v_nametable = self.vram_register.tmp.v_nametable;
                 },
-                else => {}
+                else => {},
             },
             else => {},
         }

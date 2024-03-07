@@ -8,8 +8,8 @@ pub const Apu = struct {
 
     resampler: *Resampler,
 
-    pulse1: Pulse = .{ .sweep = .{ .change_modifier = 1 }},
-    pulse2: Pulse = .{ .sweep = .{ .change_modifier = 0 }},
+    pulse1: Pulse = .{ .sweep = .{ .change_modifier = 1 } },
+    pulse2: Pulse = .{ .sweep = .{ .change_modifier = 0 } },
     triangle: Triangle = .{},
     noise: Noise = .{},
     dmc: Dmc = .{},
@@ -18,10 +18,7 @@ pub const Apu = struct {
 
     const Self = @This();
 
-    const lengths = [32]u8{
-        10, 254, 20, 2,  40, 4,  80, 6,  160, 8,  60, 10, 14, 12, 26, 14,
-        12, 16,  24, 18, 48, 20, 96, 22, 192, 24, 72, 26, 16, 28, 32, 30
-    };
+    const lengths = [32]u8{ 10, 254, 20, 2, 40, 4, 80, 6, 160, 8, 60, 10, 14, 12, 26, 14, 12, 16, 24, 18, 48, 20, 96, 22, 192, 24, 72, 26, 16, 28, 32, 30 };
 
     const PulseReg1 = packed struct {
         volume: u4,
@@ -45,14 +42,14 @@ pub const Apu = struct {
         };
         switch (addr) {
             0x4000, 0x4004 => {
-                const reg = @bitCast(PulseReg1, byte);
+                const reg = @as(PulseReg1, @bitCast(byte));
                 p.volume = reg.volume;
                 p.env.constant_volume = reg.constant_volume;
                 p.env.timer_reload = reg.volume;
                 p.duty_cycle = reg.duty_cycle;
             },
             0x4001, 0x4005 => {
-                const reg = @bitCast(PulseSweepReg, byte);
+                const reg = @as(PulseSweepReg, @bitCast(byte));
                 p.sweep.shift_count = reg.shift_count;
                 p.sweep.negate = reg.negate;
                 p.sweep.enabled = reg.enabled;
@@ -79,10 +76,10 @@ pub const Apu = struct {
     };
 
     pub fn writeTriangle(self: *Self, addr: u16, byte: u8) void {
-        var tri = &self.triangle;
+        const tri = &self.triangle;
         switch (addr) {
             0x4008 => {
-                const reg = @bitCast(TriangleReg1, byte);
+                const reg = @as(TriangleReg1, @bitCast(byte));
                 self.triangle.linear_reload = reg.linear_reload;
                 self.triangle.control = reg.control_flag;
             },
@@ -115,14 +112,14 @@ pub const Apu = struct {
         var n = &self.noise;
         switch (addr) {
             0x400C => {
-                const reg = @bitCast(NoiseReg1, byte);
+                const reg = @as(NoiseReg1, @bitCast(byte));
                 std.debug.assert(!reg.length_counter_halt);
                 n.env.constant_volume = reg.constant_volume;
                 n.env.timer_reload = reg.volume;
                 n.volume = reg.volume;
             },
             0x400E => {
-                const reg = @bitCast(NoiseReg2, byte);
+                const reg = @as(NoiseReg2, @bitCast(byte));
                 n.timer_reload = noise_periods[reg.timer_index];
                 n.tone_mode = reg.tone_mode;
             },
@@ -151,11 +148,11 @@ pub const Apu = struct {
     };
 
     pub fn writeStatusRegister(self: *Self, byte: u8) void {
-        self.status = @bitCast(Status, byte);
-        if (!self.status.pulse1_enabled)   self.pulse1.length_counter = 0;
-        if (!self.status.pulse2_enabled)   self.pulse2.length_counter = 0;
+        self.status = @as(Status, @bitCast(byte));
+        if (!self.status.pulse1_enabled) self.pulse1.length_counter = 0;
+        if (!self.status.pulse2_enabled) self.pulse2.length_counter = 0;
         if (!self.status.triangle_enabled) self.triangle.length_counter = 0;
-        if (!self.status.noise_enabled)    self.noise.length_counter = 0;
+        if (!self.status.noise_enabled) self.noise.length_counter = 0;
     }
 
     const FrameCounterReg = packed struct {
@@ -178,7 +175,7 @@ pub const Apu = struct {
         var p1 = &self.pulse1;
         var p2 = &self.pulse2;
         var n = &self.noise;
-        var dmc = &self.dmc;
+        const dmc = &self.dmc;
 
         const tri_active = self.status.triangle_enabled and
             self.triangle.length_counter > 0 and
@@ -301,10 +298,10 @@ pub const Pulse = struct {
 };
 
 const pulse_waves = [4][8]u8{
-    [_]u8{ 0, 1, 0, 0, 0, 0, 0, 0, },
-    [_]u8{ 0, 1, 1, 0, 0, 0, 0, 0, },
-    [_]u8{ 0, 1, 1, 1, 1, 0, 0, 0, },
-    [_]u8{ 1, 0, 0, 1, 1, 1, 1, 1, },
+    [_]u8{ 0, 1, 0, 0, 0, 0, 0, 0 },
+    [_]u8{ 0, 1, 1, 0, 0, 0, 0, 0 },
+    [_]u8{ 0, 1, 1, 1, 1, 0, 0, 0 },
+    [_]u8{ 1, 0, 0, 1, 1, 1, 1, 1 },
 };
 
 const Envelope = struct {
@@ -360,7 +357,6 @@ const Sweep = struct {
     }
 };
 
-
 pub const Triangle = struct {
     length_counter: u8 = 0,
     linear_current: u7 = 0,
@@ -375,14 +371,9 @@ pub const Triangle = struct {
     timer_current: u11 = 0,
 };
 
-const triangles = [_]u8{
-    15, 14, 13, 12, 11, 10,  9,  8,  7,  6,  5,  4,  3,  2,  1,  0,
-     0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14, 15
-};
+const triangles = [_]u8{ 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15 };
 
-const noise_periods = [_]u16{
-    4, 8, 16, 32, 64, 96, 128, 160, 202, 254, 380, 508, 762, 1016, 2034, 4068
-};
+const noise_periods = [_]u16{ 4, 8, 16, 32, 64, 96, 128, 160, 202, 254, 380, 508, 762, 1016, 2034, 4068 };
 
 pub const Noise = struct {
     volume: u4 = 0,
@@ -425,24 +416,24 @@ pub const Sample = struct {
 
     const pulse_table = blk: {
         var table: [31]f32 = undefined;
-        for (table) |*s, i| {
-            s.* = 95.52 / (8128.0 / @intToFloat(f32, i) + 100);
+        for (&table, 0..) |*s, i| {
+            s.* = 95.52 / (8128.0 / @as(f32, @floatFromInt(i)) + 100);
         }
         break :blk table;
     };
 
     const tnd_table = blk: {
         var table: [203]f32 = undefined;
-        for (table) |*s, i| {
-            s.* = 163.67 / (24329.0 / @intToFloat(f32, i) + 100);
+        for (&table, 0..) |*s, i| {
+            s.* = 163.67 / (24329.0 / @as(f32, @floatFromInt(i)) + 100);
         }
         break :blk table;
     };
 
     // For debugging
     fn mixLinear(self: Self) f32 {
-        const pulse_out = 0.00752 * (@intToFloat(f32, self.pulse1) + @intToFloat(f32, self.pulse2));
-        const tnd_out = 0.00851 * @intToFloat(f32, self.triangle) + 0.00494 * @intToFloat(f32, self.noise) + 0.00335 * @intToFloat(f32, self.dmc);
+        const pulse_out = 0.00752 * (@as(f32, @floatFromInt(self.pulse1)) + @as(f32, @floatFromInt(self.pulse2)));
+        const tnd_out = 0.00851 * @as(f32, @floatFromInt(self.triangle)) + 0.00494 * @as(f32, @floatFromInt(self.noise)) + 0.00335 * @as(f32, @floatFromInt(self.dmc));
         return pulse_out + tnd_out;
     }
 
@@ -451,6 +442,5 @@ pub const Sample = struct {
         const pulse_out = pulse_table[self.pulse1 + self.pulse2];
         const tnd_out = tnd_table[3 * self.triangle + 2 * self.noise + self.dmc];
         return pulse_out + tnd_out;
-
     }
 };

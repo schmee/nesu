@@ -1,24 +1,34 @@
 const std = @import("std");
-const Builder = std.build.Builder;
-const raylib = @import("raylib-zig/lib.zig"); //call .Pkg() with the folder raylib-zig is in relative to project build.zig
 
-pub fn build(b: *Builder) void {
-    const mode = b.standardReleaseOptions();
+pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
+    const optimize = b.standardOptimizeOption(.{ .preferred_optimize_mode = .ReleaseFast });
 
-    const system_lib = b.option(bool, "system-raylib", "link to preinstalled raylib libraries") orelse false;
+    const exe = b.addExecutable(.{
+        .name = "nesu",
+        .root_source_file = .{ .path = "src/main.zig" },
+        .target = target,
+        .optimize = optimize,
+    });
 
-    const exe = b.addExecutable("nesu", "src/main.zig");
-    exe.setBuildMode(mode);
-    exe.setTarget(target);
+    const raylib_zig = b.dependency("raylib_zig", .{
+        .target = target,
+        .optimize = optimize,
+    });
+    const raylib = raylib_zig.module("raylib");
+    const raylib_math = raylib_zig.module("raylib-math");
+    const raylib_artifact = raylib_zig.artifact("raylib");
+    exe.linkLibrary(raylib_artifact);
+    exe.root_module.addImport("raylib", raylib);
+    exe.root_module.addImport("raylib-math", raylib_math);
 
-    raylib.link(exe, system_lib);
-    raylib.addAsPackage("raylib", exe);
-    raylib.math.addAsPackage("raylib-math", exe);
+    b.installArtifact(exe);
 
-    const run_cmd = exe.run();
-    const run_step = b.step("run", "run nesu");
+    const run_cmd = b.addRunArtifact(exe);
+    run_cmd.step.dependOn(b.getInstallStep());
+    if (b.args) |args| {
+        run_cmd.addArgs(args);
+    }
+    const run_step = b.step("run", "Run the app");
     run_step.dependOn(&run_cmd.step);
-
-    exe.install();
 }
