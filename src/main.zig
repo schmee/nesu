@@ -61,7 +61,7 @@ pub fn main() !void {
     const screen_width = 256;
     const screen_height = 240;
     rl.setTargetFPS(60);
-    rl.setWindowState(.flag_vsync_hint);
+    rl.setWindowState(.{ .vsync_hint = true });
     rl.initWindow(screen_width * 2, screen_height * 2, "Nesu");
     var framebuffer: [screen_height][screen_width]rl.Color = undefined;
     const image = rl.Image{

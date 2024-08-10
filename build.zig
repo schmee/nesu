@@ -6,7 +6,7 @@ pub fn build(b: *std.Build) !void {
 
     const exe = b.addExecutable(.{
         .name = "nesu",
-        .root_source_file = .{ .path = "src/main.zig" },
+        .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -16,11 +16,9 @@ pub fn build(b: *std.Build) !void {
         .optimize = optimize,
     });
     const raylib = raylib_zig.module("raylib");
-    const raylib_math = raylib_zig.module("raylib-math");
     const raylib_artifact = raylib_zig.artifact("raylib");
     exe.linkLibrary(raylib_artifact);
     exe.root_module.addImport("raylib", raylib);
-    exe.root_module.addImport("raylib-math", raylib_math);
 
     b.installArtifact(exe);
 
